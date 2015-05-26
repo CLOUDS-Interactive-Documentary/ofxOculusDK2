@@ -577,7 +577,7 @@ void ofxOculusDK2::renderOverlay(){
 			ofMultMatrix(baseRotation);
 		}
 		else {
-			ofMultMatrix(orientationMatrix*baseRotation);
+			ofMultMatrix(getOrientationMat()*baseRotation);
 		}
 	}
 	
