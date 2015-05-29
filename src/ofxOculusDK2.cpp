@@ -469,7 +469,7 @@ void ofxOculusDK2::endBackground(){
     backgroundTarget.end();
 }
 
-void ofxOculusDK2::beginOverlay(float overlayZ, float width, float height){
+void ofxOculusDK2::beginOverlay(float overlayZ, float scale,  float width, float height){
 	bUseOverlay = true;
 	overlayZDistance = overlayZ;
 	
@@ -478,7 +478,7 @@ void ofxOculusDK2::beginOverlay(float overlayZ, float width, float height){
 	}
 	
 	overlayMesh.clear();
-	ofRectangle overlayrect = ofRectangle(-width/2,-height/2,width,height);
+	ofRectangle overlayrect = ofRectangle(-width/2*scale,-height/2*scale,width*scale,height*scale);
 	overlayMesh.addVertex( ofVec3f(overlayrect.getMinX(), overlayrect.getMinY(), overlayZ) );
 	overlayMesh.addVertex( ofVec3f(overlayrect.getMaxX(), overlayrect.getMinY(), overlayZ) );
 	overlayMesh.addVertex( ofVec3f(overlayrect.getMinX(), overlayrect.getMaxY(), overlayZ) );

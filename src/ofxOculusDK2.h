@@ -53,7 +53,7 @@ class ofxOculusDK2
     void endBackground();
 
 	//draw overlay, before rendering eyes
-	void beginOverlay(float overlayZDistance = -150, float width = 256, float height = 256);
+	void beginOverlay(float overlayZDistance = -150, float scale = 1.0, float width = 256, float height = 256);
     void endOverlay();
 
 	void beginLeftEye();
