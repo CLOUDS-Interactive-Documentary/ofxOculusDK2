@@ -161,7 +161,7 @@ private:
     ovrGraphicsLuid     luid;
     ovrEyeRenderDesc	eyeRenderDesc[2];
     ovrPosef            headPose[2];
-    ovrFrameTiming      frameTiming;
+    //ovrFrameTiming      frameTiming;
     unsigned int        frameIndex;//{ 0 };
     ovrVector3f         hmdToEyeViewOffsets[2];
     ovrLayerEyeFov      sceneLayer;

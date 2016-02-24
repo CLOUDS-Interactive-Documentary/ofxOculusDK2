@@ -212,9 +212,12 @@ void ofxOculusDK2::updateHmdSettings() {
     for_each_eye([&](ovrEyeType eye){
         eyeRenderDesc[eye] = ovr_GetRenderDesc(hmd, ovrEye_Left, sceneLayer.Fov[eye]);
         hmdToEyeViewOffsets[eye] = eyeRenderDesc[eye].HmdToEyeViewOffset;
-        sceneLayer.Viewport[eye].Pos = { 0, 0 };
-        sceneLayer.Viewport[eye].Size = { renderTargetSize.w / 2, renderTargetSize.h };
+        sceneLayer.Viewport[eye].Pos.x = 0;
+        sceneLayer.Viewport[eye].Pos.y = 0;
+        sceneLayer.Viewport[eye].Size.w = renderTargetSize.w / 2;
+		sceneLayer.Viewport[eye].Size.h = renderTargetSize.h;
     });
+
     sceneLayer.Viewport[ovrEye_Right].Pos = toOVRVector2i((renderTargetSize.w + 1) / 2, 0);
 
     if (bHqDistortion) {
@@ -327,7 +330,7 @@ void ofxOculusDK2::reset() {
 }
 
 ofQuaternion ofxOculusDK2::getOrientationQuat() {
-    ovrTrackingState ts = ovr_GetTrackingState(hmd, ovr_GetTimeInSeconds());
+    ovrTrackingState ts = ovr_GetTrackingState(hmd, ovr_GetTimeInSeconds(), true);
     if (ts.StatusFlags & (ovrStatus_OrientationTracked | ovrStatus_PositionTracked)) {
         return toOf(ts.HeadPose.ThePose.Orientation);
     }
@@ -432,7 +435,32 @@ void ofxOculusDK2::beginLeftEye() {
 
     if (!bSetup) return;
 
-    ovr_GetEyePoses(hmd, 0, hmdToEyeViewOffsets, headPose, NULL);
+/// Returns the predicted head pose in outHmdTrackingState and offset eye poses in outEyePoses. 
+///
+/// This is a thread-safe function where caller should increment frameIndex with every frame
+/// and pass that index where applicable to functions called on the rendering thread.
+/// Assuming outEyePoses are used for rendering, it should be passed as a part of ovrLayerEyeFov.
+/// The caller does not need to worry about applying HmdToEyeViewOffset to the returned outEyePoses variables.
+///
+/// \param[in]  hmd Specifies an ovrHmd previously returned by ovr_Create.
+/// \param[in]  frameIndex Specifies the targeted frame index, or 0 to refer to one frame after 
+///             the last time ovr_SubmitFrame was called.
+/// \param[in]  hmdToEyeViewOffset Can be ovrEyeRenderDesc.HmdToEyeViewOffset returned from 
+///             ovr_GetRenderDesc. For monoscopic rendering, use a vector that is the average 
+///             of the two vectors for both eyes.
+/// \param[in]  latencyMarker Specifies that this call is the point in time where
+///             the "App-to-Mid-Photon" latency timer starts from. If a given ovrLayer
+///             provides "SensorSampleTimestamp", that will override the value stored here.
+/// \param[out] outEyePoses The predicted eye poses.
+/// \param[out] outHmdTrackingState The predicted ovrTrackingState. May be NULL, in which case it is ignored.
+///
+/*OVR_PUBLIC_FUNCTION(void) ovr_GetEyePoses(ovrSession session, long long frameIndex, ovrBool latencyMarker,
+                                             const ovrVector3f hmdToEyeViewOffset[2],
+                                             ovrPosef outEyePoses[2],
+                                             ovrTrackingState* outHmdTrackingState);
+											 */
+    //ovr_GetEyePoses(hmd, 0, hmdToEyeViewOffsets, headPose, NULL);
+    ovr_GetEyePoses(hmd, 0, true, hmdToEyeViewOffsets, headPose, NULL);
     for_each_eye([&](ovrEyeType eye) {
         sceneLayer.RenderPose[eye] = headPose[eye];
     });
@@ -556,7 +584,8 @@ ofVec3f ofxOculusDK2::worldToScreen(ofVec3f worldPosition, bool considerHeadOrie
 }
 
 ofMatrix4x4 ofxOculusDK2::getOrientationMat() {
-    ovrTrackingState ts = ovr_GetTrackingState(hmd, ovr_GetTimeInSeconds());
+	//set to true
+    ovrTrackingState ts = ovr_GetTrackingState(hmd, ovr_GetTimeInSeconds(), true);
 
     if (ts.StatusFlags & (ovrStatus_OrientationTracked | ovrStatus_PositionTracked)) {
         return ofMatrix4x4(toOf(ts.HeadPose.ThePose.Orientation));

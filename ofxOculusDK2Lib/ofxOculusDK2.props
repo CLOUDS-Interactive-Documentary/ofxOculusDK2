@@ -15,7 +15,7 @@
     <Lib />
     <Lib />
     <Lib>
-      <AdditionalLibraryDirectories>..\..\..\addons\ofxOculusDK2\libs\LibOVR\Lib\x64\VS2012;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>..\..\..\addons\ofxOculusDK2\libs\LibOVR\Lib\vs64\;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Lib>
   </ItemDefinitionGroup>
   <ItemGroup />
