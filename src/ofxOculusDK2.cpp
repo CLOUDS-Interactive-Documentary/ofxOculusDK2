@@ -236,6 +236,17 @@ void ofxOculusDK2::updateHmdSettings() {
 		
 		initializeMirrorTexture(windowSize);
 
+		auto size = renderBuffer->getSize();
+		sceneLayer.Viewport[0].Pos.x = 0; 
+		sceneLayer.Viewport[0].Pos.y = 0; 
+		sceneLayer.Viewport[0].Size.w = size.w / 2;
+		sceneLayer.Viewport[0].Size.h = size.h;
+		sceneLayer.Viewport[1].Pos.x = (size.w + 1) / 2; 
+		sceneLayer.Viewport[1].Pos.y = 0; 
+		sceneLayer.Viewport[1].Size.w = size.w / 2;
+		sceneLayer.Viewport[1].Size.h = size.h;
+
+
         bRenderTargetSizeChanged = false;
     }
 
@@ -391,18 +402,27 @@ ofQuaternion ofxOculusDK2::getOrientationQuat() {
 
 ofMatrix4x4 ofxOculusDK2::getProjectionMatrix(ovrEyeType eye) {
 	//TODO: respect near/far plans
-    return toOf(ovrMatrix4f_Projection(eyeRenderDesc[eye].Fov, .01f, 10000.0f, true));
+	unsigned int projectionModifier = ovrProjection_RightHanded | ovrProjection_ClipRangeOpenGL;
+//	unsigned int projectionModifier = ovrProjection_ClipRangeOpenGL;
+    return toOf(ovrMatrix4f_Projection(eyeRenderDesc[eye].Fov, .1f, 1000.0f, projectionModifier));
 }
 
 ofMatrix4x4 ofxOculusDK2::getViewMatrix(ovrEyeType eye) {
 
+	//riftCamera = *baseCamera;
+	riftCamera.setPosition(baseCamera->getPosition());
+	riftCamera.setOrientation(baseCamera->getOrientationQuat() * toOf(headPose[eye].Orientation).inverse() );
+	//riftCamera.setPosition(ofMatrix4x4::newTranslationMatrix(toOf(headPose[eye].Position) );
     ofMatrix4x4 baseCameraMatrix = baseCamera->getModelViewMatrix();
 
     // head orientation and position
-    ofMatrix4x4 hmdView = ofMatrix4x4::newRotationMatrix(toOf(headPose[eye].Orientation)) * 
-		ofMatrix4x4::newTranslationMatrix(toOf(headPose[eye].Position));
+    ofMatrix4x4 hmdView = ofMatrix4x4::newTranslationMatrix(toOf(headPose[eye].Position)) * 
+		ofMatrix4x4::newRotationMatrix(toOf(headPose[eye].Orientation));
+		
 
     // final multiplication of everything
+	//return hmdView.getInverse();
+	//return riftCamera.getModelViewMatrix();;
     return baseCameraMatrix * hmdView.getInverse();
 }
 
@@ -419,6 +439,7 @@ void ofxOculusDK2::setupEyeParams(ovrEyeType eye) {
     //ofViewport(toOf(sceneLayer.Viewport[eye]));
 	ofViewport(getOculusViewport(eye));
 
+
     ofSetMatrixMode(OF_MATRIX_PROJECTION);
     ofLoadIdentityMatrix();
     ofLoadMatrix(getProjectionMatrix(eye));
@@ -426,6 +447,7 @@ void ofxOculusDK2::setupEyeParams(ovrEyeType eye) {
     ofSetMatrixMode(OF_MATRIX_MODELVIEW);
     ofLoadIdentityMatrix();
     ofLoadMatrix(getViewMatrix(eye));
+
 }
 
 ofRectangle ofxOculusDK2::getOculusViewport(ovrEyeType eye) {
@@ -569,15 +591,6 @@ void ofxOculusDK2::endRightEye() {
 
 	sceneLayer.ColorTexture[0] = renderBuffer->TextureSet;
 	sceneLayer.ColorTexture[1] = NULL;
-	auto size = renderBuffer->getSize();
-	sceneLayer.Viewport[0].Pos.x = 0; 
-	sceneLayer.Viewport[0].Pos.y = 0; 
-	sceneLayer.Viewport[0].Size.w = size.w / 2;
-	sceneLayer.Viewport[0].Size.h = size.h;
-	sceneLayer.Viewport[1].Pos.x = (size.w + 1) / 2; 
-	sceneLayer.Viewport[1].Pos.y = 0; 
-	sceneLayer.Viewport[1].Size.w = size.w / 2;
-	sceneLayer.Viewport[1].Size.h = size.h;
 
 	sceneLayer.SensorSampleTime = sensorSampleTime;
 
@@ -638,7 +651,6 @@ ofVec3f ofxOculusDK2::worldToScreen(ofVec3f worldPosition, bool considerHeadOrie
 
     if (considerHeadOrientation) {
         // We'll combine both left and right eye projections to get a midpoint.
-
 
         ofMatrix4x4 projectionMatrixLeft = toOf(ovrMatrix4f_Projection(eyeRenderDesc[ovrEye_Left].Fov, 0.01f, 10000.0f, true));
         ofMatrix4x4 projectionMatrixRight = toOf(ovrMatrix4f_Projection(eyeRenderDesc[ovrEye_Right].Fov, 0.01f, 10000.0f, true));
