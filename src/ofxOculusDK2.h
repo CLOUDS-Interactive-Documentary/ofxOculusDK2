@@ -10,25 +10,106 @@
 #pragma once 
 
 #include "ofMain.h"
-
-//#include "OVR.h"
-//#include "OVR_Kernel.h"
-//using namespace OVR;
-
 #include "OVR_CAPI.h"
 #include "OVR_CAPI_GL.h"
-/*
-#include "Util/Util_Render_Stereo.h"
-using namespace OVR::Util::Render;
 
-#include "CAPI/CAPI_HMDState.h"
-using namespace OVR::CAPI;
-
-#include "Sensors/OVR_DeviceConstants.h"
-*/
 #include <iostream>
 
 
+
+// TODO: openFrameworks FBOs currently don't allow for changing the texture attachments at every frame.
+// We thus use the provided sample implementation by Oculus.
+
+//---------------------------------------------------------------------------------------
+struct DepthBuffer
+{
+	GLuint        texId;
+
+	DepthBuffer( ovrSizei size, int sampleCount )
+	{
+		if( sampleCount > 1 ){
+			ofLogError("DepthBuffer") << "MSAA is unsupported";
+		}
+		glGenTextures( 1, &texId );
+		glBindTexture( GL_TEXTURE_2D, texId );
+		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
+		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
+		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
+		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
+		glTexImage2D( GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, size.w, size.h, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, NULL );
+	}
+
+	~DepthBuffer() {
+		glDeleteTextures( 1, &texId );
+	}
+};
+
+//--------------------------------------------------------------------------
+struct TextureBuffer
+{
+	ovrSwapTextureSet* TextureSet;
+	GLuint        texId;
+	GLuint        fboId;
+	ovrSizei       texSize;
+
+	TextureBuffer( ovrSession session, ovrSizei size, int mipLevels, int sampleCount )
+	{
+		if( sampleCount > 1 ){
+			ofLogError("TextureBuffer") << "MSAA is unsupported";
+		}
+		texSize = size;
+
+		// This texture isn't necessarily going to be a rendertarget, but it usually is.
+
+		auto result = ovr_CreateSwapTextureSetGL( session, GL_SRGB8_ALPHA8, size.w, size.h, &TextureSet );
+		if(result != ovrSuccess ){
+			ofLogError("TextureBuffer") << "ovr_CreateSwapTextureSetGL failed";
+		}
+
+		for( int i = 0; i < TextureSet->TextureCount; ++i ) {
+			ovrGLTexture* tex = (ovrGLTexture*)&TextureSet->Textures[i];
+			glBindTexture( GL_TEXTURE_2D, tex->OGL.TexId );
+			glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
+			glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
+			glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
+			glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
+		}
+
+		if( mipLevels > 1 ) {
+			glGenerateMipmap( GL_TEXTURE_2D );
+		}
+
+		glGenFramebuffers( 1, &fboId );
+	}
+
+	~TextureBuffer() {
+		glDeleteFramebuffers( 1, &fboId );
+	}
+
+	ovrSizei getSize() const
+	{
+		return texSize;
+	}
+
+	void setAndClearRenderSurface( DepthBuffer * dbuffer )
+	{
+		ovrGLTexture* tex = (ovrGLTexture*)&TextureSet->Textures[TextureSet->CurrentIndex];
+
+		glBindFramebuffer( GL_FRAMEBUFFER, fboId );
+		glFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex->OGL.TexId, 0 );
+		glFramebufferTexture2D( GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, dbuffer->texId, 0 );
+
+		glViewport( 0, 0, texSize.w, texSize.h );
+		glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
+	}
+
+	void unsetRenderSurface()
+	{
+		glBindFramebuffer( GL_FRAMEBUFFER, fboId );
+		glFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0 );
+		glFramebufferTexture2D( GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, 0, 0 );
+	}
+};
 
 class ofxOculusDK2 {
 public:
@@ -129,7 +210,7 @@ public:
         return renderTarget;
     }
 
-    ofRectangle getOculusViewport();
+	ofRectangle getOculusViewport(ovrEyeType eye = ovrEye_Left);
     bool isHD();
     //allows you to disable moving the camera based on inner ocular distance
     bool applyTranslation();
@@ -156,17 +237,28 @@ private:
     bool bUseOverlay;
     float overlayZDistance;
 
-    ovrHmd              hmd;
+	bool skipFrame;
+
+    ovrSession			session;
     ovrHmdDesc          hmdDesc;
     ovrGraphicsLuid     luid;
-    ovrEyeRenderDesc	eyeRenderDesc[2];
-    ovrPosef            headPose[2];
     //ovrFrameTiming      frameTiming;
-    unsigned int        frameIndex;//{ 0 };
-    ovrVector3f         hmdToEyeViewOffsets[2];
+    unsigned int        frameIndex;
+    ovrEyeRenderDesc	eyeRenderDesc[ovrEye_Count];
+    ovrPosef            headPose[ovrEye_Count];
+    ovrVector3f         hmdToEyeViewOffsets[ovrEye_Count];
     ovrLayerEyeFov      sceneLayer;
 
-    void initializeClientRenderer();
+	std::unique_ptr<TextureBuffer>	renderBuffer;
+	std::unique_ptr<DepthBuffer>	depthBuffer;
+
+	ovrGLTexture*		mirrorTexture;
+	GLuint				mirrorFBO;
+
+	double				sensorSampleTime;
+
+	void initializeMirrorTexture( ovrSizei size );
+	void destroyMirrorTexture();
 
     ovrSizei               windowSize;
 
