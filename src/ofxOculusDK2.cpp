@@ -9,9 +9,9 @@
 //  Updated for DK2 by Matt Ebb October 2014
 
 #include "ofxOculusDK2.h"
-#include "ofAppGLFWWindow.h"
+//#include "ofAppGLFWWindow.h"
 
-#include <stdio.h>  // XXX mattebb for testing, printf
+//#include <stdio.h>  // XXX mattebb for testing, printf
 
 ofQuaternion toOf(const ovrQuatf& q) {
     return ofQuaternion(q.x, q.y, q.z, q.w);
@@ -66,10 +66,7 @@ ovrSizei toOVRSizei(const int w, const int h) {
 
 ofxOculusDK2::ofxOculusDK2() {
     memset(&sceneLayer, 0, sizeof(sceneLayer));
-    
-	//sceneLayer.Header.Type = ovrLayerType_EyeFov;
-    //sceneLayer.Header.Flags = ovrLayerFlag_TextureOriginAtBottomLeft;
-	
+    	
 	mirrorTexture = nullptr;
 
 	baseCamera = nullptr;
@@ -79,17 +76,11 @@ ofxOculusDK2::ofxOculusDK2() {
 	//JG added default values
     bSetup = false;
     insideFrame = false;
-    startTrackingCaps = 0;
 
-    bHmdSettingsChanged = true;
-    bRenderTargetSizeChanged = true;
 	
 	pixelDensity = 1.0;
 
     bPositionTracking = true;
-
-    // hmd capabilities
-    bNoMirrorToWindow = false; 
 
     // distortion caps
     bSRGB = true;
@@ -120,55 +111,6 @@ ofxOculusDK2::~ofxOculusDK2() {
     }
 }
 
-ofFbo::Settings ofxOculusDK2::renderTargetFboSettings() {
-    ofFbo::Settings settings;
-    //settings.numSamples = 4;
-    settings.numSamples = 0;
-    settings.internalformat = GL_RGBA;
-    settings.useDepth = true;
-    settings.textureTarget = GL_TEXTURE_2D;
-    settings.minFilter = GL_LINEAR;
-    settings.maxFilter = GL_LINEAR;
-    settings.wrapModeHorizontal = GL_CLAMP_TO_EDGE;
-    settings.wrapModeVertical = GL_CLAMP_TO_EDGE;
-    settings.depthStencilInternalFormat = GL_DEPTH_COMPONENT24;
-    return settings;
-}
-
-unsigned int ofxOculusDK2::setupDistortionCaps() {
-    unsigned int caps = 0;
-
-    //if (bTimeWarp)
-    //    caps |= ovrDistortionCap_TimeWarp;
-    //if (bVignette)
-    //    caps |= ovrDistortionCap_Vignette;
-    //if (bSRGB)
-    //    caps |= ovrDistortionCap_SRGB;
-    //if (bOverdrive)
-    //    caps |= ovrDistortionCap_Overdrive;
-    //if (bHqDistortion)
-    //    caps |= ovrDistortionCap_HqDistortion;
-    //if (bTimewarpJitDelay)
-    //    caps |= ovrDistortionCap_TimewarpJitDelay;
-    return caps;
-}
-
-unsigned int ofxOculusDK2::setupHmdCaps() {
-    unsigned int caps = 0;
-
-    //if (bNoMirrorToWindow)
-    //    caps |= ovrHmdCap_NoMirrorToWindow;
-    //if (bDisplayOff)
-    //    caps |= ovrHmdCap_DisplayOff;
-    //if (bLowPersistence)
-    //    caps |= ovrHmdCap_LowPersistence;
-    //if (bDynamicPrediction)ovr_GetRenderDesc
-    //    caps |= ovrHmdCap_DynamicPrediction;
-    //if (bNoVsync)
-    //    caps |= ovrHmdCap_NoVSync;
-    return caps;
-}
-
 // Convenience method for looping over each eye with a lambda
 template <typename Function>
 inline void for_each_eye(Function function) {
@@ -179,107 +121,19 @@ inline void for_each_eye(Function function) {
     }
 }
 
-
 void ofxOculusDK2::updateHmdSettings() {
-
-	if (!bHmdSettingsChanged) return;
-
-	/*
-    // Initialise the sensor which provides the Rift’s pose and motion.
-    unsigned int trackingCaps = ovrTrackingCap_Orientation | ovrTrackingCap_MagYawCorrection;
-    if (bPositionTracking)
-        trackingCaps |= ovrTrackingCap_Position;
-
-    // only update trackingCaps if they've changed
-    if (trackingCaps != startTrackingCaps) {
-        ovr_ConfigureTracking(session, trackingCaps, 0);
-        startTrackingCaps = trackingCaps;
-    }
-	*/
-
-    // Initialize eye rendering information for ovr_Configure.
-    // The viewport sizes are re-computed in case RenderTargetSize changed due to HW limitations.
 
 	for_each_eye([&](ovrEyeType eye){
         eyeRenderDesc[eye] = ovr_GetRenderDesc(session, eye, hmdDesc.DefaultEyeFov[eye]);
 		hmdToEyeViewOffsets[eye] = eyeRenderDesc[eye].HmdToEyeViewOffset;
-//        hmdToEyeViewOffsets[eye] = eyeRenderDesc[eye].HmdToEyeViewOffset;
-//        sceneLayer.Viewport[eye].Pos.x = 0;
-//        sceneLayer.Viewport[eye].Pos.y = 0;
-//        sceneLayer.Viewport[eye].Size.w = renderTargetSize.w / 2;
-//		sceneLayer.Viewport[eye].Size.h = renderTargetSize.h;
     });
 
-//    for_each_eye([&](ovrEyeType eye) {
-//        sceneLayer.Fov[eye] = hmdDesc.DefaultEyeFov[eye];
-//    });
 	
-	//INIT FRAME BUFFER
-    if (bRenderTargetSizeChanged) {
-        //ovrSizei recommendedSizes[2];
-        //for_each_eye([&](ovrEyeType eye) {
-        //    recommendedSizes[eye] = ovr_GetFovTextureSize(hmd, eye, sceneLayer.Fov[eye], pixelDensity);
-        //});
-		renderTargetSize = hmdDesc.Resolution;
-        //renderTargetSize.w = recommendedSizes[0].w + recommendedSizes[1].w;
-        //renderTargetSize.h = max(recommendedSizes[0].h, recommendedSizes[1].h);
-		/*
-        ofFbo::Settings render_settings = renderTargetFboSettings();
-        render_settings.width = renderTargetSize.w;
-        render_settings.height = renderTargetSize.h;
-
-        renderTarget.allocate(render_settings);
-        backgroundTarget.allocate(rend~erTargetSize.w / 2, renderTargetSize.h);
-		*/
-		renderBuffer = std::unique_ptr<TextureBuffer>( new TextureBuffer( session, renderTargetSize, 1, 1 ) );
-		depthBuffer = std::unique_ptr<DepthBuffer>( new DepthBuffer( renderTargetSize, 0 ) );
+	renderTargetSize = hmdDesc.Resolution;
+	renderBuffer = std::unique_ptr<TextureBuffer>( new TextureBuffer( session, renderTargetSize, 1, 1 ) );
+	depthBuffer = std::unique_ptr<DepthBuffer>( new DepthBuffer( renderTargetSize, 0 ) );
 		
-		initializeMirrorTexture(windowSize);
-
-		auto size = renderBuffer->getSize();
-		sceneLayer.Viewport[0].Pos.x = 0; 
-		sceneLayer.Viewport[0].Pos.y = 0; 
-		sceneLayer.Viewport[0].Size.w = size.w / 2;
-		sceneLayer.Viewport[0].Size.h = size.h;
-		sceneLayer.Viewport[1].Pos.x = (size.w + 1) / 2; 
-		sceneLayer.Viewport[1].Pos.y = 0; 
-		sceneLayer.Viewport[1].Size.w = size.w / 2;
-		sceneLayer.Viewport[1].Size.h = size.h;
-
-
-        bRenderTargetSizeChanged = false;
-    }
-
-	/*
-    sceneLayer.Viewport[ovrEye_Right].Pos = toOVRVector2i((renderTargetSize.w + 1) / 2, 0);
-
-    if (bHqDistortion) {
-        sceneLayer.Header.Flags |= ovrLayerFlag_HighQuality;
-    } else {
-        sceneLayer.Header.Flags &= ~ovrLayerFlag_HighQuality;
-    }
-
-    if (sceneLayer.ColorTexture) {
-        ovr_DestroySwapTextureSet( session, sceneLayer.ColorTexture[0]);
-        sceneLayer.ColorTexture[0] = nullptr;
-    }
-
-    if (!OVR_SUCCESS(ovr_CreateSwapTextureSetGL(session, GL_RGBA, renderTargetSize.w, renderTargetSize.h, &sceneLayer.ColorTexture[0]))) {
-        return;
-    }
-
-    for (int i = 0; i < sceneLayer.ColorTexture[0]->TextureCount; ++i) {
-        ovrGLTexture& ovrTex = (ovrGLTexture&)sceneLayer.ColorTexture[0]->Textures[i];
-        glBindTexture(GL_TEXTURE_2D, ovrTex.OGL.TexId);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    }
-    glBindTexture(GL_TEXTURE_2D, 0);
-	*/
-
-    bHmdSettingsChanged = false;
+	initializeMirrorTexture(windowSize);
 }
 
 void ofxOculusDK2::initializeMirrorTexture( ovrSizei size )
@@ -357,6 +211,10 @@ float ofxOculusDK2::getUserEyeHeight(void) {
 bool ofxOculusDK2::getPositionTracking(void) {
     return bPositionTracking;
 }
+
+
+/*
+TODO: RE-implement
 void ofxOculusDK2::setPositionTracking(bool state) {
     bPositionTracking = state;
     bHmdSettingsChanged = true;
@@ -385,6 +243,7 @@ void ofxOculusDK2::setPixelDensity(float density) {
     bRenderTargetSizeChanged = true;
     updateHmdSettings();
 }
+*/
 
 void ofxOculusDK2::reset() {
     if (bSetup) {
@@ -413,46 +272,44 @@ ofMatrix4x4 ofxOculusDK2::getViewMatrix(ovrEyeType eye) {
 	riftCamera.setPosition(baseCamera->getPosition());
 	riftCamera.setOrientation(baseCamera->getOrientationQuat() * toOf(headPose[eye].Orientation).inverse() );
 	//riftCamera.setPosition(ofMatrix4x4::newTranslationMatrix(toOf(headPose[eye].Position) );
-    ofMatrix4x4 baseCameraMatrix = baseCamera->getModelViewMatrix();
+	ofMatrix4x4 baseCameraMatrix = baseCamera->getModelViewMatrix();
 
     // head orientation and position
-    ofMatrix4x4 hmdView = ofMatrix4x4::newTranslationMatrix(toOf(headPose[eye].Position)) * 
+    ofMatrix4x4 hmdView =  ofMatrix4x4::newTranslationMatrix(toOf(headPose[eye].Position))  * 
 		ofMatrix4x4::newRotationMatrix(toOf(headPose[eye].Orientation));
 		
 
     // final multiplication of everything
 	//return hmdView.getInverse();
 	//return riftCamera.getModelViewMatrix();;
-    return baseCameraMatrix * hmdView.getInverse();
+	return hmdView.getInverse();
 }
 
 void ofxOculusDK2::setupEyeParams(ovrEyeType eye) {
-    /*
-    if(bUseBackground){
-    glPushAttrib(GL_ALL_ATTRIB_BITS);
-    glDisable(GL_LIGHTING);
-    ofDisableDepthTest();
-    backgroundTarget.getTextureReference().draw(toOf(eyeRenderViewport[eye]));
-    glPopAttrib();
-    }*/
-
+    
+	if(bUseBackground){
+		glPushAttrib(GL_ALL_ATTRIB_BITS);
+		glDisable(GL_LIGHTING);
+		ofDisableDepthTest();
+		//backgroundTarget.getTextureReference().draw(toOf(eyeRenderViewport[eye]));
+		glPopAttrib();
+    }
+	
+	//JG: Cannot use ofViewport here for some reason, need to call gl directly	
     //ofViewport(toOf(sceneLayer.Viewport[eye]));
-	ofViewport(getOculusViewport(eye));
+	ofRectangle viewport = getOculusViewport(eye);
+	glViewport(	viewport.x,viewport.y,viewport.width,viewport.height);
 
-
-    ofSetMatrixMode(OF_MATRIX_PROJECTION);
+	ofSetMatrixMode(OF_MATRIX_PROJECTION);
     ofLoadIdentityMatrix();
     ofLoadMatrix(getProjectionMatrix(eye));
 
     ofSetMatrixMode(OF_MATRIX_MODELVIEW);
     ofLoadIdentityMatrix();
     ofLoadMatrix(getViewMatrix(eye));
-
 }
 
 ofRectangle ofxOculusDK2::getOculusViewport(ovrEyeType eye) {
-    //	OVR::Util::Render::StereoEyeParams eyeRenderParams = stereo.GetEyeRenderParams( OVR::Util::Render::StereoEye_Left );
-    //	return toOf(eyeRenderParams.VP);
     return toOf(sceneLayer.Viewport[eye]);
 }
 
@@ -511,13 +368,6 @@ void ofxOculusDK2::beginLeftEye() {
 
     if (!bSetup) return;
 
-	/*
-    //ovr_GetEyePoses(hmd, 0, hmdToEyeViewOffsets, headPose, NULL);
-    ovr_GetEyePoses(hmd, 0, true, hmdToEyeViewOffsets, headPose, NULL);
-    for_each_eye([&](ovrEyeType eye) {
-        sceneLayer.RenderPose[eye] = headPose[eye];
-    });
-	*/
 
 	double ftiming = ovr_GetPredictedDisplayTime( session, 0 );
 	sensorSampleTime = ovr_GetTimeInSeconds();
@@ -531,14 +381,7 @@ void ofxOculusDK2::beginLeftEye() {
 	}
 
     insideFrame = true;
-	/*
-    //renderTarget.begin(false);
-    auto swapTextures = sceneLayer.ColorTexture[0];
-    ovrGLTexture& texture = (ovrGLTexture&)(swapTextures->Textures[swapTextures->CurrentIndex]);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture.OGL.TexId, 0);
 
-    ofClear(0);
-	*/
 
     ofPushView();
     ofPushMatrix();
@@ -582,7 +425,7 @@ void ofxOculusDK2::endRightEye() {
 	viewScaleDesc.HmdSpaceToWorldScaleInMeters = 1.0f;
 
 	sceneLayer.Header.Type = ovrLayerType_EyeFov;
-	sceneLayer.Header.Flags = ovrLayerFlag_TextureOriginAtBottomLeft;
+	//sceneLayer.Header.Flags = ovrLayerFlag_TextureOriginAtBottomLeft;
 	for_each_eye([&](ovrEyeType eye){
 		viewScaleDesc.HmdToEyeViewOffset[eye] = hmdToEyeViewOffsets[eye];
 		sceneLayer.Fov[eye]			= eyeRenderDesc[eye].Fov;
@@ -591,6 +434,15 @@ void ofxOculusDK2::endRightEye() {
 
 	sceneLayer.ColorTexture[0] = renderBuffer->TextureSet;
 	sceneLayer.ColorTexture[1] = NULL;
+	auto size = renderBuffer->getSize();
+	sceneLayer.Viewport[0].Pos.x = 0; 
+	sceneLayer.Viewport[0].Pos.y = 0; 
+	sceneLayer.Viewport[0].Size.w = size.w / 2;
+	sceneLayer.Viewport[0].Size.h = size.h;
+	sceneLayer.Viewport[1].Pos.x = (size.w + 1) / 2; 
+	sceneLayer.Viewport[1].Pos.y = 0; 
+	sceneLayer.Viewport[1].Size.w = size.w / 2;
+	sceneLayer.Viewport[1].Size.h = size.h;
 
 	sceneLayer.SensorSampleTime = sensorSampleTime;
 
@@ -598,7 +450,6 @@ void ofxOculusDK2::endRightEye() {
 	auto result = ovr_SubmitFrame( session, 0, &viewScaleDesc, &layers, 1 );
 	
 	skipFrame  = !(result == ovrSuccess);
-
 
 	// Do NOT advance TextureSet currentIndex - that has already been d
 

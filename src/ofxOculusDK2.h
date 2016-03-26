@@ -145,7 +145,6 @@ public:
     void endRightEye();
 
     void draw();
-    void drawSDK();
 
     void dismissSafetyWarning();
     void recenterPose();
@@ -220,15 +219,15 @@ private:
 
     bool bSetup;
     bool insideFrame;
-    unsigned startTrackingCaps;
+    //unsigned startTrackingCaps;
 
-    bool bHmdSettingsChanged;
-    bool bRenderTargetSizeChanged;
+    //bool bHmdSettingsChanged;
+   // bool bRenderTargetSizeChanged;
 
     bool bPositionTracking;
 
     // hmd capabilities
-    bool bNoMirrorToWindow; 
+//    bool bNoMirrorToWindow; 
 
     // distortion caps
     bool bSRGB;
