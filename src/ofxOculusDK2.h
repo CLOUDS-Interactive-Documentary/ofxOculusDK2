@@ -10,105 +10,208 @@
 #pragma once 
 
 #include "ofMain.h"
-#include "OVR_CAPI.h"
+
+//#include "Win32_GLAppUtil.h"
+//#include "OVR_CAPI.h"
 #include "OVR_CAPI_GL.h"
+#include "Extras/OVR_Math.h"
 
 #include <iostream>
-
-
-
-// TODO: openFrameworks FBOs currently don't allow for changing the texture attachments at every frame.
-// We thus use the provided sample implementation by Oculus.
 
 //---------------------------------------------------------------------------------------
 struct DepthBuffer
 {
-	GLuint        texId;
+    GLuint        texId;
 
-	DepthBuffer( ovrSizei size, int sampleCount )
-	{
-		if( sampleCount > 1 ){
-			ofLogError("DepthBuffer") << "MSAA is unsupported";
-		}
-		glGenTextures( 1, &texId );
-		glBindTexture( GL_TEXTURE_2D, texId );
-		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
-		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
-		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
-		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
-		glTexImage2D( GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, size.w, size.h, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, NULL );
-	}
+    DepthBuffer(OVR::Sizei size, int sampleCount)
+    {
+        assert(sampleCount <= 1); // The code doesn't currently handle MSAA textures.
 
-	~DepthBuffer() {
-		glDeleteTextures( 1, &texId );
-	}
+        glGenTextures(1, &texId);
+        glBindTexture(GL_TEXTURE_2D, texId);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+        GLenum internalFormat = GL_DEPTH_COMPONENT32F;
+        GLenum type = GL_FLOAT;
+//        if (GLE_ARB_depth_buffer_float)
+//        {
+//            internalFormat = GL_DEPTH_COMPONENT32F;
+//            type = GL_FLOAT;
+//        }
+
+        glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, size.w, size.h, 0, GL_DEPTH_COMPONENT, type, NULL);
+    }
+    ~DepthBuffer()
+    {
+        if (texId)
+        {
+            glDeleteTextures(1, &texId);
+            texId = 0;
+        }
+    }
 };
 
 //--------------------------------------------------------------------------
 struct TextureBuffer
 {
-	ovrSwapTextureSet* TextureSet;
-	GLuint        texId;
-	GLuint        fboId;
-	ovrSizei       texSize;
+    ovrSession          Session;
+    ovrTextureSwapChain  TextureChain;
+    GLuint              texId;
+    GLuint              fboId;
+    OVR::Sizei             texSize;
 
-	TextureBuffer( ovrSession session, ovrSizei size, int mipLevels, int sampleCount )
-	{
-		if( sampleCount > 1 ){
-			ofLogError("TextureBuffer") << "MSAA is unsupported";
-		}
-		texSize = size;
+    TextureBuffer(ovrSession session, bool rendertarget, bool displayableOnHmd, OVR::Sizei size, int mipLevels, unsigned char * data, int sampleCount) :
+        Session(session),
+        TextureChain(nullptr),
+        texId(0),
+        fboId(0),
+        texSize(0, 0)
+    {
+        assert(sampleCount <= 1); // The code doesn't currently handle MSAA textures.
 
-		// This texture isn't necessarily going to be a rendertarget, but it usually is.
+        texSize = size;
 
-		auto result = ovr_CreateSwapTextureSetGL( session, GL_SRGB8_ALPHA8, size.w, size.h, &TextureSet );
-		if(result != ovrSuccess ){
-			ofLogError("TextureBuffer") << "ovr_CreateSwapTextureSetGL failed";
-		}
+        if (displayableOnHmd)
+        {
+            // This texture isn't necessarily going to be a rendertarget, but it usually is.
+            assert(session); // No HMD? A little odd.
+            assert(sampleCount == 1); // ovr_CreateSwapTextureSetD3D11 doesn't support MSAA.
 
-		for( int i = 0; i < TextureSet->TextureCount; ++i ) {
-			ovrGLTexture* tex = (ovrGLTexture*)&TextureSet->Textures[i];
-			glBindTexture( GL_TEXTURE_2D, tex->OGL.TexId );
-			glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
-			glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
-			glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
-			glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
-		}
+            ovrTextureSwapChainDesc desc = {};
+            desc.Type = ovrTexture_2D;
+            desc.ArraySize = 1;
+            desc.Width = size.w;
+            desc.Height = size.h;
+            desc.MipLevels = 1;
+            desc.Format = OVR_FORMAT_R8G8B8A8_UNORM_SRGB;
+            desc.SampleCount = 1;
+            desc.StaticImage = ovrFalse;
 
-		if( mipLevels > 1 ) {
-			glGenerateMipmap( GL_TEXTURE_2D );
-		}
+            ovrResult result = ovr_CreateTextureSwapChainGL(Session, &desc, &TextureChain);
 
-		glGenFramebuffers( 1, &fboId );
-	}
+            int length = 0;
+            ovr_GetTextureSwapChainLength(session, TextureChain, &length);
 
-	~TextureBuffer() {
-		glDeleteFramebuffers( 1, &fboId );
-	}
+            if(OVR_SUCCESS(result))
+            {
+                for (int i = 0; i < length; ++i)
+                {
+                    GLuint chainTexId;
+                    ovr_GetTextureSwapChainBufferGL(Session, TextureChain, i, &chainTexId);
+                    glBindTexture(GL_TEXTURE_2D, chainTexId);
 
-	ovrSizei getSize() const
-	{
-		return texSize;
-	}
+                    if (rendertarget)
+                    {
+                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                    }
+                    else
+                    {
+                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+                    }
+                }
+            }
+        }
+        else
+        {
+            glGenTextures(1, &texId);
+            glBindTexture(GL_TEXTURE_2D, texId);
 
-	void setAndClearRenderSurface( DepthBuffer * dbuffer )
-	{
-		ovrGLTexture* tex = (ovrGLTexture*)&TextureSet->Textures[TextureSet->CurrentIndex];
+            if (rendertarget)
+            {
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            }
+            else
+            {
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+            }
 
-		glBindFramebuffer( GL_FRAMEBUFFER, fboId );
-		glFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex->OGL.TexId, 0 );
-		glFramebufferTexture2D( GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, dbuffer->texId, 0 );
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8_ALPHA8, texSize.w, texSize.h, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+        }
 
-		glViewport( 0, 0, texSize.w, texSize.h );
-		glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
-	}
+        if (mipLevels > 1)
+        {
+            glGenerateMipmap(GL_TEXTURE_2D);
+        }
 
-	void unsetRenderSurface()
-	{
-		glBindFramebuffer( GL_FRAMEBUFFER, fboId );
-		glFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0 );
-		glFramebufferTexture2D( GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, 0, 0 );
-	}
+        glGenFramebuffers(1, &fboId);
+    }
+
+    ~TextureBuffer()
+    {
+        if (TextureChain)
+        {
+            ovr_DestroyTextureSwapChain(Session, TextureChain);
+            TextureChain = nullptr;
+        }
+        if (texId)
+        {
+            glDeleteTextures(1, &texId);
+            texId = 0;
+        }
+        if (fboId)
+        {
+            glDeleteFramebuffers(1, &fboId);
+            fboId = 0;
+        }
+    }
+
+    OVR::Sizei GetSize() const
+    {
+        return texSize;
+    }
+
+    void SetAndClearRenderSurface(DepthBuffer* dbuffer)
+    {
+        GLuint curTexId;
+        if (TextureChain)
+        {
+            int curIndex;
+            ovr_GetTextureSwapChainCurrentIndex(Session, TextureChain, &curIndex);
+            ovr_GetTextureSwapChainBufferGL(Session, TextureChain, curIndex, &curTexId);
+        }
+        else
+        {
+            curTexId = texId;
+        }
+
+        glBindFramebuffer(GL_FRAMEBUFFER, fboId);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, curTexId, 0);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, dbuffer->texId, 0);
+
+        glViewport(0, 0, texSize.w, texSize.h);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glEnable(GL_FRAMEBUFFER_SRGB);
+    }
+
+    void UnsetRenderSurface()
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, fboId);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
+    }
+
+    void Commit()
+    {
+        if (TextureChain)
+        {
+            ovr_CommitTextureSwapChain(Session, TextureChain);
+        }
+    }
 };
 
 class ofxOculusDK2 {
@@ -245,16 +348,18 @@ private:
     //ovrFrameTiming      frameTiming;
     unsigned int        frameIndex;
     ovrEyeRenderDesc	eyeRenderDesc[ovrEye_Count];
-    ovrPosef            headPose[ovrEye_Count];
-    ovrVector3f         hmdToEyeViewOffsets[ovrEye_Count];
-    ovrLayerEyeFov      sceneLayer;
+    ovrPosef            eyeRenderPose[ovrEye_Count];
+    ovrVector3f         hmdToEyeOffset[ovrEye_Count];
+    ovrLayerEyeFov      layer;
 
-	std::unique_ptr<TextureBuffer>	renderBuffer;
-	std::unique_ptr<DepthBuffer>	depthBuffer;
+	TextureBuffer*		eyeRenderTexture[ovrEye_Count];
+	DepthBuffer*		eyeDepthBuffer[ovrEye_Count];
 
-	ovrGLTexture*		mirrorTexture;
+	ovrTextureSwapChain textureSwapChain;
+	ovrMirrorTexture	mirrorTexture;
 	GLuint				mirrorFBO;
 
+	bool				isVisible;
 	double				sensorSampleTime;
 
 	void initializeMirrorTexture( ovrSizei size );

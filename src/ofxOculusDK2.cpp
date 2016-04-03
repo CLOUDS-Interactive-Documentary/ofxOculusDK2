@@ -8,10 +8,9 @@
 //  Adapted to DK2 by James George and Elie Zananiri August 2014
 //  Updated for DK2 by Matt Ebb October 2014
 
-#include "ofxOculusDK2.h"
-//#include "ofAppGLFWWindow.h"
 
-//#include <stdio.h>  // XXX mattebb for testing, printf
+#include "ofxOculusDK2.h"
+
 
 ofQuaternion toOf(const ovrQuatf& q) {
     return ofQuaternion(q.x, q.y, q.z, q.w);
@@ -36,6 +35,15 @@ ovrMatrix4f toOVR(const ofMatrix4x4& m) {
 
 ofRectangle toOf(const ovrRecti& vp) {
     return ofRectangle(vp.Pos.x, vp.Pos.y, vp.Size.w, vp.Size.h);
+}
+
+ovrRecti toOVR(const ofRectangle& vp) {
+	ovrRecti r;
+	r.Pos.x = vp.x;
+	r.Pos.y = vp.y;
+	r.Size.w = vp.width;
+	r.Size.h = vp.height;
+    return r;
 }
 
 ofVec3f toOf(const ovrVector3f& v) {
@@ -65,9 +73,10 @@ ovrSizei toOVRSizei(const int w, const int h) {
 }
 
 ofxOculusDK2::ofxOculusDK2() {
-    memset(&sceneLayer, 0, sizeof(sceneLayer));
+    //memset(&sceneLayer, 0, sizeof(sceneLayer));
     	
 	mirrorTexture = nullptr;
+	isVisible = true;
 
 	baseCamera = nullptr;
 	lockView = false;
@@ -97,35 +106,25 @@ ofxOculusDK2::ofxOculusDK2() {
 ofxOculusDK2::~ofxOculusDK2() {
     if (bSetup) {
 
-		if( renderBuffer ){
-			ovr_DestroySwapTextureSet( session, renderBuffer ->TextureSet );
+		if (mirrorFBO) glDeleteFramebuffers(1, &mirrorFBO);
+		if (mirrorTexture) ovr_DestroyMirrorTexture(session, mirrorTexture);
+		for (int eye = 0; eye < 2; ++eye)
+		{
+			delete eyeRenderTexture[eye];
+			delete eyeDepthBuffer[eye];
 		}
-        if (session) {
-            ovr_Destroy(session);
-        }
-
-        ovr_Shutdown();
+		//Platform.ReleaseDevice();
+		ovr_Destroy(session);
 		
+	    ovr_Shutdown();
+
 		session = nullptr;
         bSetup = false;
     }
 }
 
-// Convenience method for looping over each eye with a lambda
-template <typename Function>
-inline void for_each_eye(Function function) {
-    for (ovrEyeType eye = ovrEyeType::ovrEye_Left;
-        eye < ovrEyeType::ovrEye_Count;
-        eye = static_cast<ovrEyeType>(eye + 1)) {
-        function(eye);
-    }
-}
-
-void ofxOculusDK2::updateHmdSettings() {
-
-
-}
-
+/*
+//TODO: Reimplement this for window resizing
 void ofxOculusDK2::initializeMirrorTexture( ovrSizei size )
 {
 	if( mirrorTexture ){
@@ -140,12 +139,15 @@ void ofxOculusDK2::initializeMirrorTexture( ovrSizei size )
 	glFramebufferRenderbuffer( GL_READ_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, 0 );
 	glBindFramebuffer( GL_READ_FRAMEBUFFER, 0 );
 }
+*/
 
+/*
 void ofxOculusDK2::destroyMirrorTexture()
 {
 	glDeleteFramebuffers( 1, &mirrorFBO );
 	ovr_DestroyMirrorTexture( session, (ovrTexture*)mirrorTexture );
 }
+*/
 
 bool ofxOculusDK2::setup() {
 
@@ -155,11 +157,19 @@ bool ofxOculusDK2::setup() {
     }
 
     // Oculus HMD & Sensor Initialization
-    ovr_Initialize(nullptr);
+    ovrResult result;
+	result = ovr_Initialize(nullptr);
+    if(!OVR_SUCCESS(result)){
+		ofLogError("ofxOculusDK2::setup") << "Failed to initialize libOVR." << result;
+		return false;
+	}
 
-
-    ovrResult result = ovr_Create(&session, &luid);
+    result = ovr_Create(&session, &luid);
     if (!OVR_SUCCESS(result)) {
+		ovrErrorInfo info;
+		ovr_GetLastErrorInfo(&info);
+
+		ofLogError("ofxOculusDK2::setup") << "Setup failed! " << result << " " << info.ErrorString;
         return false;
     }
 	hmdDesc = ovr_GetHmdDesc( session );
@@ -171,6 +181,10 @@ bool ofxOculusDK2::setup() {
     wsize.w = ofGetWidth(); 
 	wsize.h = ofGetHeight();
     windowSize = wsize; //Sizei(960, 540); avoid rotated output bug.
+
+    //if (!Platform.InitDevice(windowSize.w, windowSize.h, reinterpret_cast<LUID*>(&luid))){
+//        ofLogError() << "Couldn't init platform device";
+	//}
 
     // WARNING: Slightly dangerous!
     // We need to disable double buffering when using SDK rendering,
@@ -186,19 +200,49 @@ bool ofxOculusDK2::setup() {
 
     //updateHmdSettings();
 
-	for_each_eye([&](ovrEyeType eye){
-        eyeRenderDesc[eye] = ovr_GetRenderDesc(session, eye, hmdDesc.DefaultEyeFov[eye]);
-		hmdToEyeViewOffsets[eye] = eyeRenderDesc[eye].HmdToEyeViewOffset;
-    });
+    for (int eye = 0; eye < 2; ++eye)
+    {
+		ovrSizei idealTextureSize = ovr_GetFovTextureSize(session, ovrEyeType(eye), hmdDesc.DefaultEyeFov[eye], 1);
+		eyeRenderTexture[eye] = new TextureBuffer(session, true, true, idealTextureSize, 1, NULL, 1);
+        eyeDepthBuffer[eye]   = new DepthBuffer(eyeRenderTexture[eye]->GetSize(), 0);
+
+        if (!eyeRenderTexture[eye]->TextureChain)
+        {
+			ofLogError() << "Failed to create texture chain";
+        }
+
+        //eyeRenderDesc[eye] = ovr_GetRenderDesc(session, ovrEyeType(eye), hmdDesc.DefaultEyeFov[eye]);
+		//hmdToEyeViewOffsets[eye] = eyeRenderDesc[eye].HmdToEyeOffset;
+    }
+
+	ovrMirrorTextureDesc desc;
+    memset(&desc, 0, sizeof(desc));
+    desc.Width = windowSize.w;
+    desc.Height = windowSize.h;
+    desc.Format = OVR_FORMAT_R8G8B8A8_UNORM_SRGB;
+
+    // Create mirror texture and an FBO used to copy mirror texture to back buffer
+    result = ovr_CreateMirrorTextureGL(session, &desc, &mirrorTexture);
+    if (!OVR_SUCCESS(result))
+    {
+		ofLogError() << "Failed to create mirror texture";
+    }
+
+    // Configure the mirror read buffer
+    GLuint texId;
+    ovr_GetMirrorTextureBufferGL(session, mirrorTexture, &texId);
+
+    glGenFramebuffers(1, &mirrorFBO);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, mirrorFBO);
+    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texId, 0);
+    glFramebufferRenderbuffer(GL_READ_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, 0);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
 
 	renderTargetSize = hmdDesc.Resolution;
-	renderBuffer = std::unique_ptr<TextureBuffer>( new TextureBuffer( session, renderTargetSize, 1, 1 ) );
-	depthBuffer = std::unique_ptr<DepthBuffer>( new DepthBuffer( renderTargetSize, 0 ) );
-		
-	initializeMirrorTexture(windowSize);
+
+	//initializeMirrorTexture(windowSize);
     backgroundTarget.allocate(renderTargetSize.w/2, renderTargetSize.h);
 
-	
 	bSetup = true;
     return true;
 }
@@ -248,9 +292,10 @@ void ofxOculusDK2::setPixelDensity(float density) {
 */
 
 void ofxOculusDK2::reset() {
-    if (bSetup) {
-        ovr_RecenterPose(session);
-    }
+//TODO: figure out how to do recentering
+//    if (bSetup) {
+//        ovr_RecenterPose(session);
+//    }
 }
 
 ofQuaternion ofxOculusDK2::getOrientationQuat() {
@@ -263,7 +308,7 @@ ofQuaternion ofxOculusDK2::getOrientationQuat() {
 
 ofMatrix4x4 ofxOculusDK2::getProjectionMatrix(ovrEyeType eye) {
 	//TODO: respect near/far plans
-	unsigned int projectionModifier = ovrProjection_RightHanded | ovrProjection_ClipRangeOpenGL;
+	unsigned int projectionModifier = ovrProjection_None | ovrProjection_ClipRangeOpenGL;
 //	unsigned int projectionModifier = ovrProjection_ClipRangeOpenGL;
 	return toOf(ovrMatrix4f_Projection(eyeRenderDesc[eye].Fov, baseCamera->getNearClip(), baseCamera->getFarClip(), projectionModifier));
 }
@@ -272,16 +317,18 @@ ofMatrix4x4 ofxOculusDK2::getViewMatrix(ovrEyeType eye) {
 
 	ofMatrix4x4 baseCameraMatrix = baseCamera->getModelViewMatrix();
 	
-	cout << "POSE POSITION " << toOf(headPose[eye].Position) << endl;
+	//cout << "POSE POSITION " << toOf(eyeRenderPose[eye].Position) << endl;
 
-    ofMatrix4x4 hmdView =  ofMatrix4x4::newTranslationMatrix(toOf(headPose[eye].Position) )  * 
-		ofMatrix4x4::newRotationMatrix(toOf(headPose[eye].Orientation));
+    ofMatrix4x4 hmdView =  ofMatrix4x4::newTranslationMatrix(toOf(eyeRenderPose[eye].Position) )  * 
+		ofMatrix4x4::newRotationMatrix(toOf(eyeRenderPose[eye].Orientation));
 
 	return baseCameraMatrix * hmdView.getInverse();
 }
 
 void ofxOculusDK2::setupEyeParams(ovrEyeType eye) {
-    
+
+	eyeRenderTexture[eye]->SetAndClearRenderSurface(eyeDepthBuffer[eye]);
+
 	if(bUseBackground){
 		glPushAttrib(GL_ALL_ATTRIB_BITS);
 		glDisable(GL_LIGHTING);
@@ -290,10 +337,11 @@ void ofxOculusDK2::setupEyeParams(ovrEyeType eye) {
 		glPopAttrib();
     }
 	
+
 	//JG: Cannot use ofViewport here for some reason, need to call gl directly	
     //ofViewport(toOf(sceneLayer.Viewport[eye]));
-	ofRectangle viewport = getOculusViewport(eye);
-	glViewport(	viewport.x,viewport.y,viewport.width,viewport.height);
+	//ofRectangle viewport = getOculusViewport(eye);
+	//glViewport(	viewport.x,viewport.y,viewport.width,viewport.height);
 
 	ofSetMatrixMode(OF_MATRIX_PROJECTION);
     ofLoadIdentityMatrix();
@@ -305,7 +353,7 @@ void ofxOculusDK2::setupEyeParams(ovrEyeType eye) {
 }
 
 ofRectangle ofxOculusDK2::getOculusViewport(ovrEyeType eye) {
-    return toOf(sceneLayer.Viewport[eye]);
+    return toOf(layer.Viewport[eye]);
 }
 
 void ofxOculusDK2::beginBackground() {
@@ -364,17 +412,33 @@ void ofxOculusDK2::beginLeftEye() {
 
     if (!bSetup) return;
 
+	//TODO:
+	//if(!isVisible) return;
 
-	double ftiming = ovr_GetPredictedDisplayTime( session, 0 );
-	sensorSampleTime = ovr_GetTimeInSeconds();
-	ovrTrackingState hmdState = ovr_GetTrackingState( session, ftiming, ovrTrue );
-	ovr_CalcEyePoses( hmdState.HeadPose.ThePose, hmdToEyeViewOffsets, headPose );
+	eyeRenderDesc[0] = ovr_GetRenderDesc(session, ovrEye_Left, hmdDesc.DefaultEyeFov[0]);
+	eyeRenderDesc[1] = ovr_GetRenderDesc(session, ovrEye_Right, hmdDesc.DefaultEyeFov[1]);
 
+	hmdToEyeOffset[0] = eyeRenderDesc[0].HmdToEyeOffset; 
+	hmdToEyeOffset[1] =	eyeRenderDesc[1].HmdToEyeOffset;
+
+	ovr_GetEyePoses(session, frameIndex, ovrTrue, hmdToEyeOffset, eyeRenderPose, &sensorSampleTime);
+
+//	double ftiming = ovr_GetPredictedDisplayTime( session, 0 );
+//	sensorSampleTime = ovr_GetTimeInSeconds();
+//	ovrTrackingState hmdState = ovr_GetTrackingState( session, ftiming, ovrTrue );
+//	ovr_CalcEyePoses( hmdState.HeadPose.ThePose, hmdToEyeViewOffsets, sceneLayer.RenderPose );
+
+//	int currentIndex = 0;
+//    ovr_GetTextureSwapChainCurrentIndex(session, textureSwapChain, &currentIndex);
+
+	/*
 	if( renderBuffer ) {
 		auto* set = renderBuffer->TextureSet;
 		set->CurrentIndex = ( set->CurrentIndex + 1 ) % set->TextureCount;
 		renderBuffer->setAndClearRenderSurface( depthBuffer.get() );
 	}
+	*/
+	
 
     insideFrame = true;
 
@@ -391,6 +455,16 @@ void ofxOculusDK2::endLeftEye() {
     if (bUseOverlay) {
         renderOverlay();
     }
+
+	// Avoids an error when calling SetAndClearRenderSurface during next iteration.
+	// Without this, during the next while loop iteration SetAndClearRenderSurface
+	// would bind a framebuffer with an invalid COLOR_ATTACHMENT0 because the texture ID
+	// associated with COLOR_ATTACHMENT0 had been unlocked by calling wglDXUnlockObjectsNV.
+	eyeRenderTexture[ovrEye_Left]->UnsetRenderSurface();
+
+	// Commit changes to the textures so they get picked up frame
+	eyeRenderTexture[ovrEye_Left]->Commit();
+
 
     ofPopMatrix();
     ofPopView();
@@ -412,11 +486,51 @@ void ofxOculusDK2::endRightEye() {
         renderOverlay();
     }
 
+	// Avoids an error when calling SetAndClearRenderSurface during next iteration.
+	// Without this, during the next while loop iteration SetAndClearRenderSurface
+	// would bind a framebuffer with an invalid COLOR_ATTACHMENT0 because the texture ID
+	// associated with COLOR_ATTACHMENT0 had been unlocked by calling wglDXUnlockObjectsNV.
+	eyeRenderTexture[ovrEye_Right]->UnsetRenderSurface();
+
+	// Commit changes to the textures so they get picked up frame
+	eyeRenderTexture[ovrEye_Right]->Commit();
+
     ofPopMatrix();
     ofPopView();
 	
-	renderBuffer->unsetRenderSurface();
+	
+    layer.Header.Type  = ovrLayerType_EyeFov;
+	//layer.Header.Flags = ovrLayerFlag_HighQuality;
+	layer.Header.Flags = 0;
+    for (int eye = 0; eye < 2; ++eye)
+    {
+        layer.ColorTexture[eye] = eyeRenderTexture[eye]->TextureChain;
+        layer.Viewport[eye]     = OVR::Recti(eyeRenderTexture[eye]->GetSize());
+        layer.Fov[eye]          = hmdDesc.DefaultEyeFov[eye];
+        layer.RenderPose[eye]   = eyeRenderPose[eye];
+        layer.SensorSampleTime  = sensorSampleTime;
+    }
 
+    ovrLayerHeader* layers = &layer.Header;
+    ovrResult result = ovr_SubmitFrame(session, frameIndex, nullptr, &layers, 1);
+    // exit the rendering loop if submit returns an error, will retry on ovrError_DisplayLost
+    if (!OVR_SUCCESS(result)){
+		ofLogError() << "OVR Render Error";
+	}
+
+    isVisible = (result == ovrSuccess);
+
+    ovrSessionStatus sessionStatus;
+    ovr_GetSessionStatus(session, &sessionStatus);
+    if (sessionStatus.ShouldQuit){
+		ofLogError() << "Quit!!";
+	}
+
+    if (sessionStatus.ShouldRecenter){
+        ovr_RecenterTrackingOrigin(session);
+	}
+
+	/*
 	ovrViewScaleDesc viewScaleDesc;
 	viewScaleDesc.HmdSpaceToWorldScaleInMeters = 1.0f;
 
@@ -446,10 +560,8 @@ void ofxOculusDK2::endRightEye() {
 	auto result = ovr_SubmitFrame( session, 0, &viewScaleDesc, &layers, 1 );
 	
 	skipFrame  = !(result == ovrSuccess);
+	*/
 
-	// Do NOT advance TextureSet currentIndex - that has already been d
-
-    //renderTarget.end();
 }
 
 void ofxOculusDK2::renderOverlay() {
@@ -609,15 +721,15 @@ void ofxOculusDK2::draw() {
 
 	if( mirrorTexture ) {
 		
-		// Blit mirror texture to back buffer
-		glBindFramebuffer( GL_READ_FRAMEBUFFER, mirrorFBO );
-		glBindFramebuffer( GL_DRAW_FRAMEBUFFER, 0 );
-		GLint w = mirrorTexture->OGL.Header.TextureSize.w;
-		GLint h = mirrorTexture->OGL.Header.TextureSize.h;
-		glBlitFramebuffer( 0, h, w, 0,
-			0, 0, w, h,
-			GL_COLOR_BUFFER_BIT, GL_NEAREST );
-		glBindFramebuffer( GL_READ_FRAMEBUFFER, 0 );
+        // Blit mirror texture to back buffer
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, mirrorFBO);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+        GLint w = windowSize.w;
+        GLint h = windowSize.h;
+        glBlitFramebuffer(0, h, w, 0,
+                          0, 0, w, h,
+                          GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
 		
 		ofViewport(0,0,ofGetWidth(), ofGetHeight());
 
@@ -642,7 +754,8 @@ void ofxOculusDK2::draw() {
 
 
 void ofxOculusDK2::recenterPose(void) {
-    ovr_RecenterPose(session);
+	//TODO: figure out how to force this
+    //ovr_RecenterPose(session);
 }
 
 bool ofxOculusDK2::isHD() {

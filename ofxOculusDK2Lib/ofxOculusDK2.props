@@ -5,7 +5,7 @@
   <PropertyGroup />
   <ItemDefinitionGroup>
     <ClCompile>
-      <AdditionalIncludeDirectories>..\..\..\addons\ofxOculusDK2\libs\LibOVR\Src;..\..\..\addons\ofxOculusDK2\libs\LibOVR\Include;..\..\..\addons\ofxOculusDK2\libs\3rdParty;..\..\..\addons\ofxOculusDK2\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\..\addons\ofxOculusDK2\libs\LibOVR\Include;..\..\..\addons\ofxOculusDK2\libs\LibOVRKernel\Src;..\..\..\addons\ofxOculusDK2\libs\3rdParty;..\..\..\addons\ofxOculusDK2\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
