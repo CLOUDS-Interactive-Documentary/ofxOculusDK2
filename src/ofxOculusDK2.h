@@ -36,7 +36,7 @@ struct DepthBuffer
 		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
 		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
 		glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
-		glTexImage2D( GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, size.w, size.h, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, NULL );
+		glTexImage2D( GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, size.w, size.h, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, NULL );
 	}
 
 	~DepthBuffer() {
@@ -135,7 +135,7 @@ public:
     void endBackground();
 
     //draw overlay, before rendering eyes
-    void beginOverlay(float overlayZDistance = -150, float width = 256, float height = 256);
+    void beginOverlay(float overlayZDistance = -150, float scale = 1.0, float width = 256, float height = 256);
     void endOverlay();
 
     void beginLeftEye();
@@ -206,9 +206,9 @@ public:
     ofFbo& getBackgroundTarget() {
         return backgroundTarget;
     }
-    ofFbo& getRenderTarget() {
-        return renderTarget;
-    }
+//    ofFbo& getRenderTarget() {
+ //       return renderTarget;
+ //   }
 
 	ofRectangle getOculusViewport(ovrEyeType eye = ovrEye_Left);
     bool isHD();

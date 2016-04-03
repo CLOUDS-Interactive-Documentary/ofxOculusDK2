@@ -123,17 +123,7 @@ inline void for_each_eye(Function function) {
 
 void ofxOculusDK2::updateHmdSettings() {
 
-	for_each_eye([&](ovrEyeType eye){
-        eyeRenderDesc[eye] = ovr_GetRenderDesc(session, eye, hmdDesc.DefaultEyeFov[eye]);
-		hmdToEyeViewOffsets[eye] = eyeRenderDesc[eye].HmdToEyeViewOffset;
-    });
 
-	
-	renderTargetSize = hmdDesc.Resolution;
-	renderBuffer = std::unique_ptr<TextureBuffer>( new TextureBuffer( session, renderTargetSize, 1, 1 ) );
-	depthBuffer = std::unique_ptr<DepthBuffer>( new DepthBuffer( renderTargetSize, 0 ) );
-		
-	initializeMirrorTexture(windowSize);
 }
 
 void ofxOculusDK2::initializeMirrorTexture( ovrSizei size )
@@ -194,9 +184,22 @@ bool ofxOculusDK2::setup() {
 	//((ofAppGLFWWindow*)ofGetWindowPtr())->setDoubleBuffering(false);
 	//ofSetVerticalSync(false);
 
-    updateHmdSettings();
+    //updateHmdSettings();
 
-    bSetup = true;
+	for_each_eye([&](ovrEyeType eye){
+        eyeRenderDesc[eye] = ovr_GetRenderDesc(session, eye, hmdDesc.DefaultEyeFov[eye]);
+		hmdToEyeViewOffsets[eye] = eyeRenderDesc[eye].HmdToEyeViewOffset;
+    });
+
+	renderTargetSize = hmdDesc.Resolution;
+	renderBuffer = std::unique_ptr<TextureBuffer>( new TextureBuffer( session, renderTargetSize, 1, 1 ) );
+	depthBuffer = std::unique_ptr<DepthBuffer>( new DepthBuffer( renderTargetSize, 0 ) );
+		
+	initializeMirrorTexture(windowSize);
+    backgroundTarget.allocate(renderTargetSize.w/2, renderTargetSize.h);
+
+	
+	bSetup = true;
     return true;
 }
 
@@ -211,7 +214,6 @@ float ofxOculusDK2::getUserEyeHeight(void) {
 bool ofxOculusDK2::getPositionTracking(void) {
     return bPositionTracking;
 }
-
 
 /*
 TODO: RE-implement
@@ -263,26 +265,19 @@ ofMatrix4x4 ofxOculusDK2::getProjectionMatrix(ovrEyeType eye) {
 	//TODO: respect near/far plans
 	unsigned int projectionModifier = ovrProjection_RightHanded | ovrProjection_ClipRangeOpenGL;
 //	unsigned int projectionModifier = ovrProjection_ClipRangeOpenGL;
-    return toOf(ovrMatrix4f_Projection(eyeRenderDesc[eye].Fov, .1f, 1000.0f, projectionModifier));
+	return toOf(ovrMatrix4f_Projection(eyeRenderDesc[eye].Fov, baseCamera->getNearClip(), baseCamera->getFarClip(), projectionModifier));
 }
 
 ofMatrix4x4 ofxOculusDK2::getViewMatrix(ovrEyeType eye) {
 
-	//riftCamera = *baseCamera;
-	riftCamera.setPosition(baseCamera->getPosition());
-	riftCamera.setOrientation(baseCamera->getOrientationQuat() * toOf(headPose[eye].Orientation).inverse() );
-	//riftCamera.setPosition(ofMatrix4x4::newTranslationMatrix(toOf(headPose[eye].Position) );
 	ofMatrix4x4 baseCameraMatrix = baseCamera->getModelViewMatrix();
+	
+	cout << "POSE POSITION " << toOf(headPose[eye].Position) << endl;
 
-    // head orientation and position
-    ofMatrix4x4 hmdView =  ofMatrix4x4::newTranslationMatrix(toOf(headPose[eye].Position))  * 
+    ofMatrix4x4 hmdView =  ofMatrix4x4::newTranslationMatrix(toOf(headPose[eye].Position) )  * 
 		ofMatrix4x4::newRotationMatrix(toOf(headPose[eye].Orientation));
-		
 
-    // final multiplication of everything
-	//return hmdView.getInverse();
-	//return riftCamera.getModelViewMatrix();;
-	return hmdView.getInverse();
+	return baseCameraMatrix * hmdView.getInverse();
 }
 
 void ofxOculusDK2::setupEyeParams(ovrEyeType eye) {
@@ -329,34 +324,35 @@ void ofxOculusDK2::endBackground() {
     backgroundTarget.end();
 }
 
-void ofxOculusDK2::beginOverlay(float overlayZ, float width, float height) {
-    bUseOverlay = true;
-    overlayZDistance = overlayZ;
+void ofxOculusDK2::beginOverlay(float overlayZ, float scale,  float width, float height){
+	bUseOverlay = true;
+	overlayZDistance = overlayZ;
+	
+	if((int)overlayTarget.getWidth() != (int)width || (int)overlayTarget.getHeight() != (int)height){
+		overlayTarget.allocate(width, height, GL_RGBA);
+	}
+	
+	overlayMesh.clear();
+	ofRectangle overlayrect = ofRectangle(-width/2*scale,-height/2*scale,width*scale,height*scale);
+	overlayMesh.addVertex( ofVec3f(overlayrect.getMinX(), overlayrect.getMinY(), overlayZ) );
+	overlayMesh.addVertex( ofVec3f(overlayrect.getMaxX(), overlayrect.getMinY(), overlayZ) );
+	overlayMesh.addVertex( ofVec3f(overlayrect.getMinX(), overlayrect.getMaxY(), overlayZ) );
+	overlayMesh.addVertex( ofVec3f(overlayrect.getMaxX(), overlayrect.getMaxY(), overlayZ) );
 
-    if ((int)overlayTarget.getWidth() != (int)width || (int)overlayTarget.getHeight() != (int)height) {
-        overlayTarget.allocate(width, height, GL_RGBA, 4);
-    }
-
-    overlayMesh.clear();
-    ofRectangle overlayrect = ofRectangle(-width / 2, -height / 2, width, height);
-    overlayMesh.addVertex(ofVec3f(overlayrect.getMinX(), overlayrect.getMinY(), overlayZ));
-    overlayMesh.addVertex(ofVec3f(overlayrect.getMaxX(), overlayrect.getMinY(), overlayZ));
-    overlayMesh.addVertex(ofVec3f(overlayrect.getMinX(), overlayrect.getMaxY(), overlayZ));
-    overlayMesh.addVertex(ofVec3f(overlayrect.getMaxX(), overlayrect.getMaxY(), overlayZ));
-
-    overlayMesh.addTexCoord(ofVec2f(0, height));
-    overlayMesh.addTexCoord(ofVec2f(width, height));
-    overlayMesh.addTexCoord(ofVec2f(0, 0));
-    overlayMesh.addTexCoord(ofVec2f(width, 0));
-
-    overlayMesh.setMode(OF_PRIMITIVE_TRIANGLE_STRIP);
-
-    overlayTarget.begin(false);
+	overlayMesh.addTexCoord( ofVec2f(0, height ) );
+	overlayMesh.addTexCoord( ofVec2f(width, height) );
+	overlayMesh.addTexCoord( ofVec2f(0,0) );
+	overlayMesh.addTexCoord( ofVec2f(width, 0) );
+	
+	overlayMesh.setMode(OF_PRIMITIVE_TRIANGLE_STRIP);
+	
+	overlayTarget.begin();
     ofClear(0.0, 0.0, 0.0, 0.0);
-
+	
     ofPushView();
     ofPushMatrix();
 }
+
 
 void ofxOculusDK2::endOverlay() {
     ofPopMatrix();
@@ -499,7 +495,6 @@ ofVec3f ofxOculusDK2::worldToScreen(ofVec3f worldPosition, bool considerHeadOrie
 
     //ofMatrix4x4 projectedLeft = getViewMatrix(ovrEye_Left) * getProjectionMatrix(ovrEye_Right);
 
-
     if (considerHeadOrientation) {
         // We'll combine both left and right eye projections to get a midpoint.
 
@@ -624,6 +619,8 @@ void ofxOculusDK2::draw() {
 			GL_COLOR_BUFFER_BIT, GL_NEAREST );
 		glBindFramebuffer( GL_READ_FRAMEBUFFER, 0 );
 		
+		ofViewport(0,0,ofGetWidth(), ofGetHeight());
+
 	}
 
 	/*
