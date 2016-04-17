@@ -475,8 +475,8 @@ public:
 	void setFadeColor( const ofFloatColor & color ){ fadeColor = color; }
 
     //draw overlay, before rendering eyes
-   // void beginOverlay(float overlayZDistance = -150, float scale = 1.0, float width = 256, float height = 256);
-   // void endOverlay();
+    void beginOverlay(float overlayZDistance = -150, float scale = 1.0, float width = 256, float height = 256);
+    void endOverlay();
 
     void beginLeftEye();
     void endLeftEye();
@@ -625,7 +625,7 @@ private:
 
 	
     //ofFbo renderTarget;
-    //ofFbo overlayTarget;
+    ofFbo overlayTarget;
    // ofShader distortionShader;
 
     //ofShader debugShader;   // XXX mattebb
@@ -640,7 +640,7 @@ private:
     ofMatrix4x4 getProjectionMatrix(ovrEyeType eye);
     ofMatrix4x4 getViewMatrix(ovrEyeType eye);
 
-    //void renderOverlay();
+    void renderOverlay();
 
     void updateHmdSettings();
     unsigned int setupDistortionCaps();

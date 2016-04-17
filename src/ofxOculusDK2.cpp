@@ -376,7 +376,7 @@ void ofxOculusDK2::setFadeOut( float fade )
 
 }
 
-/*
+
 void ofxOculusDK2::beginOverlay(float overlayZ, float scale,  float width, float height){
 	
 	bUseOverlay = true;
@@ -405,15 +405,14 @@ void ofxOculusDK2::beginOverlay(float overlayZ, float scale,  float width, float
 	
     ofPushView();
     ofPushMatrix();
-
 }
-	*/
+	
 
-//void ofxOculusDK2::endOverlay() {
-   // ofPopMatrix();
-    ///ofPopView();
-   // overlayTarget.end();
-//}
+void ofxOculusDK2::endOverlay() {
+    ofPopMatrix();
+    ofPopView();
+	overlayTarget.end();
+}
 
 void ofxOculusDK2::grabFrameData()
 {
@@ -475,9 +474,9 @@ void ofxOculusDK2::beginLeftEye() {
 void ofxOculusDK2::endLeftEye() {
     if (!bSetup) return;
 
-   // if (bUseOverlay) {
-   //     renderOverlay();
-   // }
+    if (bUseOverlay) {
+        renderOverlay();
+    }
 
 	eyeLayer->end();
 
@@ -500,9 +499,9 @@ void ofxOculusDK2::beginRightEye() {
 void ofxOculusDK2::endRightEye() {
     if (!bSetup) return;
 
-   // if (bUseOverlay) {
-   //     renderOverlay();
-   // }
+    if (bUseOverlay) {
+        renderOverlay();
+    }
 
 	eyeLayer->end();
 
@@ -578,7 +577,7 @@ void ofxOculusDK2::endRightEye() {
 
 }
 
-/*
+
 void ofxOculusDK2::renderOverlay() {
 
     // cout << "renering overlay!" << endl;
@@ -588,7 +587,6 @@ void ofxOculusDK2::renderOverlay() {
     glPushAttrib(GL_ALL_ATTRIB_BITS);
     glDisable(GL_LIGHTING);
     ofDisableDepthTest();
-
 
     if (baseCamera != NULL) {
         ofTranslate(baseCamera->getPosition());
@@ -612,7 +610,7 @@ void ofxOculusDK2::renderOverlay() {
 
 }
 
-*/
+
 
 ofVec3f ofxOculusDK2::worldToScreen(ofVec3f worldPosition, bool considerHeadOrientation) {
 
@@ -741,8 +739,8 @@ void ofxOculusDK2::draw() {
         // Blit mirror texture to back buffer
         glBindFramebuffer(GL_READ_FRAMEBUFFER, mirrorFBO);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-        GLint w = windowSize.w;
-        GLint h = windowSize.h;
+		GLint w = ofGetWidth();
+		GLint h = ofGetHeight();
         glBlitFramebuffer(0, h, w, 0,
                           0, 0, w, h,
                           GL_COLOR_BUFFER_BIT, GL_NEAREST);
