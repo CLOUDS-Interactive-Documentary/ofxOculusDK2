@@ -422,6 +422,15 @@ void ofxOculusDK2::beginLeftEye() {
 
 	if(!bSetFrameData)
 		grabFrameData();
+	/* baseCamera->begin(getOculusViewport());
+    baseCamera->end();
+
+	eyeRenderDesc[0] = ovr_GetRenderDesc(session, ovrEye_Left, hmdDesc.DefaultEyeFov[0]);
+	eyeRenderDesc[1] = ovr_GetRenderDesc(session, ovrEye_Right, hmdDesc.DefaultEyeFov[1]);
+
+	hmdToEyeOffset[0] = eyeRenderDesc[0].HmdToEyeOffset; 
+	hmdToEyeOffset[1] =	eyeRenderDesc[1].HmdToEyeOffset;
+	*/
 
 	//if( !isFadedDown && isFading ){
 	transitionLayer->setClearColor( ofFloatColor(fadeColor.r,fadeColor.g, fadeColor.b, fadeAmt ) );
@@ -711,8 +720,8 @@ void ofxOculusDK2::multBillboardMatrix(ofVec3f objectPosition, ofVec3f updirecti
 }
 ofVec2f ofxOculusDK2::gazePosition2D() {
     ofVec3f angles = getOrientationQuat().getEuler();
-    return ofVec2f(ofMap(angles.y, 90, -90, 0, windowSize.w),
-        ofMap(angles.z, 90, -90, 0, windowSize.h));
+	return ofVec2f(ofMap(angles.y, 90, -90, 0, getOculusViewport().width),
+				   ofMap(angles.z, 90, -90, 0, getOculusViewport().height));
 }
 
 void ofxOculusDK2::draw() {
