@@ -86,7 +86,7 @@ ofxOculusDK2::ofxOculusDK2() {
     bSetup = false;
     insideFrame = false;
 	isFading = false;
-	fadeColor = ofFloatColor(0.,0.,0.,0.);
+	fadeColor = ofFloatColor(0.,0.,0.,1.);
 	fadeAmt = 0;
 
 	pixelDensity = 1.0;
@@ -325,10 +325,12 @@ ofMatrix4x4 ofxOculusDK2::getViewMatrix(ovrEyeType eye) {
 
 void ofxOculusDK2::setupEyeParams(ovrEyeType eye) {
 
-	transitionLayer->begin( ovrEyeType(eye), eyeRenderPose[eye], sensorSampleTime );
-	transitionLayer->end();
+	transitionLayer->update(eye, eyeRenderPose[eye], sensorSampleTime);
+	backgroundLayer->update( eye, eyeRenderPose[eye], sensorSampleTime );
 
-	eyeLayer->begin( eye, eyeRenderPose[eye], sensorSampleTime );
+	eyeLayer->update( eye, eyeRenderPose[eye], sensorSampleTime );
+
+	eyeLayer->begin( eye );
 
 	ofSetMatrixMode(OF_MATRIX_PROJECTION);
     ofLoadIdentityMatrix();
@@ -349,8 +351,8 @@ void ofxOculusDK2::beginBackground() {
     
 	if(!bSetFrameData)
 		grabFrameData();
-
-	backgroundLayer->begin( ovrEyeType(0), eyeRenderPose[0], sensorSampleTime );
+	backgroundLayer->setClearColor(ofFloatColor(0.,0.,1.,1.));
+	backgroundLayer->begin( ovrEyeType(0) );
 }
 
 void ofxOculusDK2::endBackground() {
@@ -360,6 +362,18 @@ void ofxOculusDK2::endBackground() {
 void ofxOculusDK2::setFadeOut( float fade )
 {
 	fadeAmt = fade;
+	
+	transitionLayer->setClearColor( ofFloatColor(fadeColor.r,fadeColor.g, fadeColor.b, fadeAmt ) );
+	
+	if( !isFadedDown && isFading ){
+		transitionLayer->begin( ovrEyeType(0) );
+		transitionLayer->end();
+	}
+
+	if(fadeAmt == 1.0 ){ isFadedDown = true; isFading = false; }
+	else if( fadeAmt == 0.0 ){ isFadedDown = false; isFading = false; }
+	else { isFading = true; isFadedDown = false; }
+
 }
 
 /*
@@ -432,17 +446,6 @@ void ofxOculusDK2::beginLeftEye() {
 	hmdToEyeOffset[1] =	eyeRenderDesc[1].HmdToEyeOffset;
 	*/
 
-	//if( !isFadedDown && isFading ){
-	transitionLayer->setClearColor( ofFloatColor(fadeColor.r,fadeColor.g, fadeColor.b, fadeAmt ) );
-	
-		//transitionLayer->begin( ovrEyeType(1), eyeRenderPose[1], sensorSampleTime );
-		//transitionLayer->end();
-	//}
-	
-	if(fadeAmt == 1.0 ){ isFadedDown = true; isFading = false; }
-	else if( fadeAmt == 0.0 ){ isFadedDown = false; isFading = false; }
-	else { isFading = true; isFadedDown = false; }
-
 //	double ftiming = ovr_GetPredictedDisplayTime( session, 0 );
 //	sensorSampleTime = ovr_GetTimeInSeconds();
 //	ovrTrackingState hmdState = ovr_GetTrackingState( session, ftiming, ovrTrue );
@@ -484,6 +487,9 @@ void ofxOculusDK2::endLeftEye() {
 
 void ofxOculusDK2::beginRightEye() {
     if (!bSetup) return;
+
+	if(!bSetFrameData)
+		grabFrameData();
 
     ofPushView();
     ofPushMatrix();
@@ -759,7 +765,7 @@ void ofxOculusDK2::draw() {
 	*/
 
     bUseOverlay = false;
-    bUseBackground = false;
+    //bUseBackground = false;
     insideFrame = false;
 }
 

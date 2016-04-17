@@ -114,6 +114,8 @@ struct TextureBuffer : public TextureBufferBase
                         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
                         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
                         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+						float black_border[] = { 0.0f, 0.0f, 0.0f, 1.0f };
+						glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, black_border);
                     }
                     else
                     {
@@ -145,7 +147,7 @@ struct TextureBuffer : public TextureBufferBase
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
             }
 
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8_ALPHA8, texSize.w, texSize.h, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8_ALPHA8, texSize.w, texSize.h, 1, GL_RGBA, GL_UNSIGNED_BYTE, data);
         }
 
         if (mipLevels > 1)
@@ -212,9 +214,9 @@ struct TextureBuffer : public TextureBufferBase
 
     void UnsetRenderSurface()
     {
-        glBindFramebuffer(GL_FRAMEBUFFER, fboId);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+       // glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
+       // glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
     }
 
     void Commit()
@@ -231,8 +233,8 @@ class LayerBase {
 public:
 
 	virtual ~LayerBase(){}
-
-	virtual void begin( ovrEyeType eye, const ovrPosef &eyePose,  double sampleTime ) = 0 ;
+	virtual void update( ovrEyeType eye, const ovrPosef &eyePose,  double sampleTime ) = 0 ;
+	virtual void begin( ovrEyeType eye ) = 0 ;
 	virtual void end() = 0;
 	virtual ovrLayerHeader& getHeader() = 0; 
 	virtual void setClearColor( const ofFloatColor & color ) = 0;
@@ -275,11 +277,11 @@ public:
 			eyeTextures[1] = nullptr;
 			depthBuffers[1] = nullptr;
 				
-			layer.EyeFov.Viewport[0]     = OVR::Recti(0,0,eyeTextures[0]->GetSize().w, eyeTextures[0]->GetSize().h);
+			layer.EyeFov.Viewport[0]     = OVR::Recti(eyeTextures[0]->GetSize());
 			layer.EyeFov.Fov[0]          = desc.DefaultEyeFov[0];
 			layer.EyeFov.ColorTexture[0] = eyeTextures[0]->TextureChain;
 
-			layer.EyeFov.Viewport[1]     = OVR::Recti(0,0,eyeTextures[0]->GetSize().w, eyeTextures[0]->GetSize().h);
+			layer.EyeFov.Viewport[1]     = OVR::Recti(eyeTextures[0]->GetSize());
 			layer.EyeFov.Fov[1]          = desc.DefaultEyeFov[1];
 			layer.EyeFov.ColorTexture[1] = eyeTextures[0]->TextureChain;
 
@@ -332,10 +334,14 @@ public:
 		if(!isMonoscopic)
 			eyeTextures[1]->setClearColor(color);
 	}
-	void begin( ovrEyeType eye, const ovrPosef &eyePose,  double sampleTime )override{
-		currentEye = isMonoscopic ? ovrEyeType(0) : eye;
+
+	void update( ovrEyeType eye, const ovrPosef &eyePose,  double sampleTime)override{
 		layer.EyeFov.SensorSampleTime = sampleTime;
-		layer.EyeFov.RenderPose[currentEye] = eyePose;
+		layer.EyeFov.RenderPose[eye] = eyePose;
+	}
+
+	void begin( ovrEyeType eye )override{
+		currentEye = isMonoscopic ? ovrEyeType(0) : eye;
 		eyeTextures[currentEye]->SetAndClearRenderSurface( depthBuffers[currentEye] );
 	 }
 
@@ -416,9 +422,12 @@ public:
 		delete quadTexture;
 	}
 
-	void begin( ovrEyeType eye, const ovrPosef &quadPoseCenter,  double sampleTime )override{
+	void update( ovrEyeType eye, const ovrPosef &quadPoseCenter,  double sampleTime)override{
 		currentEye = eye;
 		layer.Quad.QuadPoseCenter = quadPoseCenter;
+	}
+
+	void begin( ovrEyeType eye )override{
 		quadTexture->SetAndClearRenderSurface(nullptr);
 	 }
 
