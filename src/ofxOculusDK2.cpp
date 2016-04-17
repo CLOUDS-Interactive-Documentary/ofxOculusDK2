@@ -178,8 +178,8 @@ bool ofxOculusDK2::setup() {
 		ofLogError("ofxOculusDK2::setup") << "Setup failed! " << result << " " << info.ErrorString;
         return false;
     }
-	hmdDesc = ovr_GetHmdDesc( session );
 
+	hmdDesc = ovr_GetHmdDesc( session );
 
     // In Direct App-rendered mode, we can use smaller window size,
     // as it can have its own contents and isn't tied to the buffer.
@@ -240,6 +240,8 @@ bool ofxOculusDK2::setup() {
 	renderTargetSize = hmdDesc.Resolution;
 
 	//draw into background
+
+	overlayTarget = ofPtr<ofFbo>( new ofFbo() );
 
 	bSetup = true;
     return true;
@@ -355,9 +357,9 @@ void ofxOculusDK2::endBackground() {
 	backgroundLayer->end();
 }
 
-void ofxOculusDK2::setFadeOut( float fade )
+void ofxOculusDK2::setFade( float fade )
 {
-	fadeAmt = fade;
+	fadeAmt = 1.0 - ofClamp(fade,0.0,1.0);
 	
 	transitionLayer->setClearColor( ofFloatColor(fadeColor.r,fadeColor.g, fadeColor.b, fadeAmt ) );
 	
@@ -372,14 +374,14 @@ void ofxOculusDK2::setFadeOut( float fade )
 
 }
 
-/*
+
 void ofxOculusDK2::beginOverlay(float overlayZ, float scale,  float width, float height){
 	
 	bUseOverlay = true;
 	overlayZDistance = overlayZ;
 	
-	if((int)overlayTarget.getWidth() != (int)width || (int)overlayTarget.getHeight() != (int)height){
-		overlayTarget.allocate(width, height, GL_RGBA);
+	if((int)overlayTarget->getWidth() != (int)width || (int)overlayTarget->getHeight() != (int)height || !overlayTarget->isAllocated() ){
+		overlayTarget->allocate(width, height, GL_RGBA);
 	}
 	
 	overlayMesh.clear();
@@ -396,7 +398,7 @@ void ofxOculusDK2::beginOverlay(float overlayZ, float scale,  float width, float
 	
 	overlayMesh.setMode(OF_PRIMITIVE_TRIANGLE_STRIP);
 	
-	overlayTarget.begin();
+	overlayTarget->begin();
     ofClear(0.0, 0.0, 0.0, 0.0);
 	
     ofPushView();
@@ -407,9 +409,9 @@ void ofxOculusDK2::beginOverlay(float overlayZ, float scale,  float width, float
 void ofxOculusDK2::endOverlay() {
     ofPopMatrix();
     ofPopView();
-	overlayTarget.end();
+	overlayTarget->end();
 }
-*/
+
 void ofxOculusDK2::grabFrameData()
 {
 	eyeRenderDesc[0] = ovr_GetRenderDesc(session, ovrEye_Left, hmdDesc.DefaultEyeFov[0]);
@@ -471,7 +473,7 @@ void ofxOculusDK2::endLeftEye() {
     if (!bSetup) return;
 
     if (bUseOverlay) {
-       // renderOverlay();
+        renderOverlay();
     }
 
 	eyeLayer->end();
@@ -496,7 +498,7 @@ void ofxOculusDK2::endRightEye() {
     if (!bSetup) return;
 
     if (bUseOverlay) {
-       // renderOverlay();
+        renderOverlay();
     }
 
 	eyeLayer->end();
@@ -573,7 +575,7 @@ void ofxOculusDK2::endRightEye() {
 
 }
 
-/*
+
 void ofxOculusDK2::renderOverlay() {
 
     // cout << "renering overlay!" << endl;
@@ -596,16 +598,16 @@ void ofxOculusDK2::renderOverlay() {
     }
 
     ofEnableAlphaBlending();
-    overlayTarget.getTextureReference().bind();
+    overlayTarget->getTextureReference().bind();
     overlayMesh.draw();
-    overlayTarget.getTextureReference().unbind();
+    overlayTarget->getTextureReference().unbind();
 
     glPopAttrib();
     ofPopMatrix();
     ofPopStyle();
 
 }
-*/
+
 
 
 ofVec3f ofxOculusDK2::worldToScreen(ofVec3f worldPosition, bool considerHeadOrientation) {

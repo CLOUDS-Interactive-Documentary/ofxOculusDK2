@@ -215,9 +215,9 @@ struct TextureBuffer : public TextureBufferBase
 
     void UnsetRenderSurface()
     {
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-       // glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
-       // glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
+        glBindFramebuffer(GL_FRAMEBUFFER, fboId);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
     }
 
     void Commit()
@@ -460,7 +460,6 @@ public:
 	ofCamera riftCamera;
 
     bool setup();
-    //bool setup(ofFbo::Settings& render_settings);
 
     bool isSetup();
     void reset();
@@ -471,7 +470,7 @@ public:
     void endBackground();
 
 	//fade
-	void setFadeOut( float fade );
+	void setFade( float fade );
 	void setFadeColor( const ofFloatColor & color ){ fadeColor = color; }
 
     //draw overlay, before rendering eyes
@@ -535,47 +534,28 @@ public:
     float distanceFromMouse(ofVec3f worldPoint);
     float distanceFromScreenPoint(ofVec3f worldPoint, ofVec2f screenPoint);
 
-	/*
+	
     ofRectangle getOverlayRectangle() {
         return ofRectangle(0, 0,
-            overlayTarget.getWidth(),
-            overlayTarget.getHeight());
+            overlayTarget->getWidth(),
+            overlayTarget->getHeight());
     }
 
     ofFbo& getOverlayTarget() {
-        return overlayTarget;
+        return *overlayTarget;
     }
-	*/
-
-	/*
-    ofFbo& getBackgroundTarget() {
-        return backgroundTarget;
-    }
-	*/
-//    ofFbo& getRenderTarget() {
- //       return renderTarget;
- //   }
-
+	
 	ofRectangle getOculusViewport(ovrEyeType eye = ovrEye_Left);
     bool isHD();
     //allows you to disable moving the camera based on inner ocular distance
-    bool applyTranslation();
 
 private:
 
     bool bSetup;
     bool insideFrame;
-    //unsigned startTrackingCaps;
-
-    //bool bHmdSettingsChanged;
-   // bool bRenderTargetSizeChanged;
 
     bool bPositionTracking;
 
-    // hmd capabilities
-//    bool bNoMirrorToWindow; 
-
-    // distortion caps
     bool bSRGB;
     bool bHqDistortion;
 
@@ -596,8 +576,8 @@ private:
     ovrSession			session;
     ovrHmdDesc          hmdDesc;
     ovrGraphicsLuid     luid;
-    //ovrFrameTiming      frameTiming;
-    unsigned int        frameIndex;
+
+	unsigned int        frameIndex;
     ovrEyeRenderDesc	eyeRenderDesc[ovrEye_Count];
     ovrPosef            eyeRenderPose[ovrEye_Count];
     ovrVector3f         hmdToEyeOffset[ovrEye_Count];
@@ -627,14 +607,7 @@ private:
     float pixelDensity;
     ovrSizei renderTargetSize;
 
-	
-    //ofFbo renderTarget;
-   // ofFbo overlayTarget;
-   // ofShader distortionShader;
-
-    //ofShader debugShader;   // XXX mattebb
-    //ofMesh debugMesh;
-    //ofImage debugImage;
+    ofPtr<ofFbo> overlayTarget;
 
     bool getHmdCap(unsigned int cap);
 
