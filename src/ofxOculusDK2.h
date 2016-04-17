@@ -85,9 +85,10 @@ struct TextureBuffer
             desc.ArraySize = 1;
             desc.Width = size.w;
             desc.Height = size.h;
-            desc.MipLevels = 1;
+            desc.MipLevels = 1; 
             desc.Format = OVR_FORMAT_R8G8B8A8_UNORM_SRGB;
-            desc.SampleCount = 1;
+            //desc.Format = OVR_FORMAT_B8G8R8A8_UNORM;
+			desc.SampleCount = 1;
             desc.StaticImage = ovrFalse;
 
             ovrResult result = ovr_CreateTextureSwapChainGL(Session, &desc, &TextureChain);
@@ -195,7 +196,7 @@ struct TextureBuffer
 
         glViewport(0, 0, texSize.w, texSize.h);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        glEnable(GL_FRAMEBUFFER_SRGB);
+        //glEnable(GL_FRAMEBUFFER_SRGB);
     }
 
     void UnsetRenderSurface()
