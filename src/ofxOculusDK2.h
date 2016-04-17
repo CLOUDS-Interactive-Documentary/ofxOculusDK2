@@ -18,12 +18,16 @@
 
 #include <iostream>
 
-//---------------------------------------------------------------------------------------
-struct DepthBuffer
-{
-    GLuint        texId;
+struct TextureBufferBase {
+	TextureBufferBase( GLuint id ):texId(id){}
+	GLuint texId;
+};
 
-    DepthBuffer(OVR::Sizei size, int sampleCount)
+//---------------------------------------------------------------------------------------
+struct DepthBuffer : public TextureBufferBase
+{
+
+	DepthBuffer(OVR::Sizei size, int sampleCount):TextureBufferBase(0)
     {
         assert(sampleCount <= 1); // The code doesn't currently handle MSAA textures.
 
@@ -55,20 +59,21 @@ struct DepthBuffer
 };
 
 //--------------------------------------------------------------------------
-struct TextureBuffer
+struct TextureBuffer : public TextureBufferBase
 {
-    ovrSession          Session;
+    ovrSession           Session;
     ovrTextureSwapChain  TextureChain;
-    GLuint              texId;
-    GLuint              fboId;
-    OVR::Sizei             texSize;
+    GLuint               fboId;
+    OVR::Sizei           texSize;
+	ofFloatColor		 clearColor;
 
     TextureBuffer(ovrSession session, bool rendertarget, bool displayableOnHmd, OVR::Sizei size, int mipLevels, unsigned char * data, int sampleCount) :
-        Session(session),
+        TextureBufferBase(0),
+		Session(session),
         TextureChain(nullptr),
-        texId(0),
         fboId(0),
-        texSize(0, 0)
+        texSize(0, 0),
+		clearColor(0.,0.,0.,0.)
     {
         assert(sampleCount <= 1); // The code doesn't currently handle MSAA textures.
 
@@ -175,6 +180,10 @@ struct TextureBuffer
         return texSize;
     }
 
+	void setClearColor( const ofFloatColor & color ){
+		clearColor = color;
+	}
+
     void SetAndClearRenderSurface(DepthBuffer* dbuffer)
     {
         GLuint curTexId;
@@ -191,16 +200,19 @@ struct TextureBuffer
 
         glBindFramebuffer(GL_FRAMEBUFFER, fboId);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, curTexId, 0);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, dbuffer->texId, 0);
+
+		if(dbuffer)
+			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, dbuffer->texId, 0);
 
         glViewport(0, 0, texSize.w, texSize.h);
+		glClearColor( clearColor.r, clearColor.g, clearColor.b, clearColor.a );
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         glEnable(GL_FRAMEBUFFER_SRGB);
     }
 
     void UnsetRenderSurface()
     {
-        glBindFramebuffer(GL_FRAMEBUFFER, fboId);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
     }
@@ -212,6 +224,217 @@ struct TextureBuffer
             ovr_CommitTextureSwapChain(Session, TextureChain);
         }
     }
+};
+
+class LayerBase {
+
+public:
+
+	virtual ~LayerBase(){}
+
+	virtual void begin( ovrEyeType eye, const ovrPosef &eyePose,  double sampleTime ) = 0 ;
+	virtual void end() = 0;
+	virtual ovrLayerHeader& getHeader() = 0; 
+	virtual void setClearColor( const ofFloatColor & color ) = 0;
+
+protected:
+
+	LayerBase(){}
+
+	ovrLayer_Union layer;
+};
+
+class EyeFovLayer : public LayerBase {
+
+public:
+
+	EyeFovLayer(  ovrSession &session, const ovrHmdDesc &desc, bool monoscopic = false, bool usesdepth = true ) : currentEye( ovrEyeType(0) ), isMonoscopic(monoscopic)
+	{
+		layer.EyeFov.Header.Type  = ovrLayerType_EyeFov;
+		layer.EyeFov.Header.Flags = ovrLayerFlag_HighQuality;
+
+		ovrSizei idealTextureSize;
+		idealTextureSize.w = 0;
+		idealTextureSize.h = 0;
+
+		if(monoscopic){
+
+			for( int eye = 0; eye < 2; ++eye ){
+				auto ideal = ovr_GetFovTextureSize(session, ovrEyeType(eye), desc.DefaultEyeFov[eye], 1);
+				idealTextureSize.w = ideal.w;
+				idealTextureSize.h = ideal.h;
+			}
+
+			eyeTextures[0] = new TextureBuffer(session, true, true, idealTextureSize, 1, NULL, 1);
+
+			if(usesdepth)
+				depthBuffers[0]   = new DepthBuffer(eyeTextures[0]->GetSize(), 0);
+			else
+				depthBuffers[0] = nullptr;
+			
+			eyeTextures[1] = nullptr;
+			depthBuffers[1] = nullptr;
+				
+			layer.EyeFov.Viewport[0]     = OVR::Recti(0,0,eyeTextures[0]->GetSize().w, eyeTextures[0]->GetSize().h);
+			layer.EyeFov.Fov[0]          = desc.DefaultEyeFov[0];
+			layer.EyeFov.ColorTexture[0] = eyeTextures[0]->TextureChain;
+
+			layer.EyeFov.Viewport[1]     = OVR::Recti(0,0,eyeTextures[0]->GetSize().w, eyeTextures[0]->GetSize().h);
+			layer.EyeFov.Fov[1]          = desc.DefaultEyeFov[1];
+			layer.EyeFov.ColorTexture[1] = eyeTextures[0]->TextureChain;
+
+		}else{
+	
+			for( int eye = 0; eye < 2; ++eye ){
+
+				idealTextureSize = ovr_GetFovTextureSize(session, ovrEyeType(eye), desc.DefaultEyeFov[eye], 1);
+
+				eyeTextures[eye] = new TextureBuffer(session, true, true, idealTextureSize, 1, NULL, 1);
+
+				if(usesdepth)
+					depthBuffers[eye]   = new DepthBuffer(eyeTextures[eye]->GetSize(), 0);
+				else
+					depthBuffers[eye] = nullptr;
+
+				layer.EyeFov.ColorTexture[eye] = eyeTextures[eye]->TextureChain;
+
+				if (!eyeTextures[eye]->TextureChain)
+				 {
+					ofLogError() << "Failed to create texture chain for eye : " << eye;
+				 }
+
+				layer.EyeFov.Viewport[eye]     = OVR::Recti(eyeTextures[eye]->GetSize());
+				layer.EyeFov.Fov[eye]          = desc.DefaultEyeFov[eye];
+				
+			}
+
+		}
+
+
+		
+	}
+
+	~EyeFovLayer()
+	{
+		for( int eye = 0; eye < 2; ++eye ){
+			if(  eyeTextures[eye] )
+				delete eyeTextures[eye];
+			if(  depthBuffers[eye] )
+				delete depthBuffers[eye];
+		}
+	}
+
+	ovrLayerHeader& getHeader()override { return layer.EyeFov.Header; }; 
+
+	void setClearColor( const ofFloatColor & color )override
+	{
+		eyeTextures[0]->setClearColor(color);
+		if(!isMonoscopic)
+			eyeTextures[1]->setClearColor(color);
+	}
+	void begin( ovrEyeType eye, const ovrPosef &eyePose,  double sampleTime )override{
+		currentEye = isMonoscopic ? ovrEyeType(0) : eye;
+		layer.EyeFov.SensorSampleTime = sampleTime;
+		layer.EyeFov.RenderPose[currentEye] = eyePose;
+		eyeTextures[currentEye]->SetAndClearRenderSurface( depthBuffers[currentEye] );
+	 }
+
+	void end()override
+	{
+		eyeTextures[currentEye]->UnsetRenderSurface();
+		eyeTextures[currentEye]->Commit();
+	}
+
+private:
+
+	ovrEyeType currentEye;
+	TextureBuffer * eyeTextures[2];
+	DepthBuffer * depthBuffers[2];
+	bool isMonoscopic;
+	friend class ofxOculusDK2;
+};
+
+
+class QuadLayer : public LayerBase {
+
+public:
+
+	void setHeadLocked()
+	{
+		layer.Quad.Header.Flags = ovrLayerFlag_HighQuality | ovrLayerFlag_HeadLocked;
+	}
+
+	void setQuadSize( const ovrVector2f & size )
+	{
+		layer.Quad.QuadSize = size;
+	}
+
+	ovrLayerHeader& getHeader()override { return layer.Quad.Header; }; 
+
+	void setClearColor( const ofFloatColor & color )override
+	{
+		quadTexture->setClearColor(color);
+	}
+
+	QuadLayer(  ovrSession &session, const ovrHmdDesc &desc ) : currentEye(ovrEyeType(0))
+	{
+		layer.Quad.Header.Type  = ovrLayerType_Quad;
+		layer.Quad.Header.Flags = ovrLayerFlag_HighQuality;
+
+		ovrSizei idealTextureSize = ovr_GetFovTextureSize(session, ovrEyeType(0), desc.DefaultEyeFov[0], 1);
+		quadTexture = new TextureBuffer(session, true, true, idealTextureSize, 1, NULL, 1);
+
+		if (!quadTexture->TextureChain)
+		{
+			ofLogError() << "Failed to create texture chain" ;
+			return;
+		}
+
+		layer.Quad.Viewport.Pos.x = 0;
+		layer.Quad.Viewport.Pos.y = 0;
+
+		layer.Quad.Viewport.Size.w = 1;
+		layer.Quad.Viewport.Size.h = 1;
+
+		layer.Quad.QuadSize.x = idealTextureSize.w;
+		layer.Quad.QuadSize.y = idealTextureSize.h;
+
+		layer.Quad.QuadPoseCenter.Position.x = 0;
+		layer.Quad.QuadPoseCenter.Position.y = 0;
+		layer.Quad.QuadPoseCenter.Position.z = 0;
+
+		layer.Quad.QuadPoseCenter.Orientation.x = 0;
+		layer.Quad.QuadPoseCenter.Orientation.y = 0;
+		layer.Quad.QuadPoseCenter.Orientation.z = 0;
+		layer.Quad.QuadPoseCenter.Orientation.w = 1;
+
+		layer.Quad.ColorTexture = quadTexture->TextureChain;
+	}
+
+	~QuadLayer()
+	{
+		delete quadTexture;
+	}
+
+	void begin( ovrEyeType eye, const ovrPosef &quadPoseCenter,  double sampleTime )override{
+		currentEye = eye;
+		layer.Quad.QuadPoseCenter = quadPoseCenter;
+		quadTexture->SetAndClearRenderSurface(nullptr);
+	 }
+
+	void end()override
+	{
+		quadTexture->UnsetRenderSurface();
+		quadTexture->Commit();
+	}
+
+private:
+
+	ovrEyeType currentEye;
+	TextureBuffer * quadTexture;
+
+	friend class ofxOculusDK2;
+
 };
 
 class ofxOculusDK2 {
@@ -237,9 +460,13 @@ public:
     void beginBackground();
     void endBackground();
 
+	//fade
+	void setFadeOut( float fade );
+	void setFadeColor( const ofFloatColor & color ){ fadeColor = color; }
+
     //draw overlay, before rendering eyes
-    void beginOverlay(float overlayZDistance = -150, float scale = 1.0, float width = 256, float height = 256);
-    void endOverlay();
+   // void beginOverlay(float overlayZDistance = -150, float scale = 1.0, float width = 256, float height = 256);
+   // void endOverlay();
 
     void beginLeftEye();
     void endLeftEye();
@@ -298,6 +525,7 @@ public:
     float distanceFromMouse(ofVec3f worldPoint);
     float distanceFromScreenPoint(ofVec3f worldPoint, ofVec2f screenPoint);
 
+	/*
     ofRectangle getOverlayRectangle() {
         return ofRectangle(0, 0,
             overlayTarget.getWidth(),
@@ -309,6 +537,7 @@ public:
     ofFbo& getBackgroundTarget() {
         return backgroundTarget;
     }
+	*/
 //    ofFbo& getRenderTarget() {
  //       return renderTarget;
  //   }
@@ -340,6 +569,14 @@ private:
     bool bUseOverlay;
     float overlayZDistance;
 
+	float fadeAmt;
+	ofFloatColor fadeColor;
+	bool isFading;
+	bool isFadedDown;
+
+	bool bSetFrameData;
+	void grabFrameData();
+
 	bool skipFrame;
 
     ovrSession			session;
@@ -350,12 +587,12 @@ private:
     ovrEyeRenderDesc	eyeRenderDesc[ovrEye_Count];
     ovrPosef            eyeRenderPose[ovrEye_Count];
     ovrVector3f         hmdToEyeOffset[ovrEye_Count];
-    ovrLayerEyeFov      layer;
 
-	TextureBuffer*		eyeRenderTexture[ovrEye_Count];
-	DepthBuffer*		eyeDepthBuffer[ovrEye_Count];
+	//Layers
+	EyeFovLayer*		eyeLayer;
+	EyeFovLayer*		backgroundLayer, *transitionLayer;
 
-	ovrTextureSwapChain textureSwapChain;
+	//MirrorTexture
 	ovrMirrorTexture	mirrorTexture;
 	GLuint				mirrorFBO;
 
@@ -366,6 +603,7 @@ private:
 	void destroyMirrorTexture();
 
     ovrSizei               windowSize;
+	ofRectangle			   eyeViewports[ 2 ];
 
     ofMesh overlayMesh;
     ofMatrix4x4 orientationMatrix;
@@ -374,14 +612,15 @@ private:
 
     float pixelDensity;
     ovrSizei renderTargetSize;
-    ofFbo renderTarget;
-    ofFbo backgroundTarget;
-    ofFbo overlayTarget;
-    ofShader distortionShader;
 
-    ofShader debugShader;   // XXX mattebb
-    ofMesh debugMesh;
-    ofImage debugImage;
+	
+    //ofFbo renderTarget;
+    //ofFbo overlayTarget;
+   // ofShader distortionShader;
+
+    //ofShader debugShader;   // XXX mattebb
+    //ofMesh debugMesh;
+    //ofImage debugImage;
 
     bool getHmdCap(unsigned int cap);
 
@@ -391,7 +630,7 @@ private:
     ofMatrix4x4 getProjectionMatrix(ovrEyeType eye);
     ofMatrix4x4 getViewMatrix(ovrEyeType eye);
 
-    void renderOverlay();
+    //void renderOverlay();
 
     void updateHmdSettings();
     unsigned int setupDistortionCaps();

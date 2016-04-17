@@ -77,7 +77,7 @@ ofxOculusDK2::ofxOculusDK2() {
     	
 	mirrorTexture = nullptr;
 	isVisible = true;
-
+	isFadedDown = false;
 	baseCamera = nullptr;
 	lockView = false;
 	oculusScreenSpaceScale = 2.0f;
@@ -85,8 +85,10 @@ ofxOculusDK2::ofxOculusDK2() {
 	//JG added default values
     bSetup = false;
     insideFrame = false;
+	isFading = false;
+	fadeColor = ofFloatColor(0.,0.,0.,0.);
+	fadeAmt = 0;
 
-	
 	pixelDensity = 1.0;
 
     bPositionTracking = true;
@@ -108,11 +110,15 @@ ofxOculusDK2::~ofxOculusDK2() {
 
 		if (mirrorFBO) glDeleteFramebuffers(1, &mirrorFBO);
 		if (mirrorTexture) ovr_DestroyMirrorTexture(session, mirrorTexture);
-		for (int eye = 0; eye < 2; ++eye)
-		{
-			delete eyeRenderTexture[eye];
-			delete eyeDepthBuffer[eye];
-		}
+		
+		delete eyeLayer;
+
+		if(backgroundLayer)
+			delete backgroundLayer;
+
+		if(transitionLayer != nullptr)
+			delete transitionLayer;
+
 		//Platform.ReleaseDevice();
 		ovr_Destroy(session);
 		
@@ -200,20 +206,13 @@ bool ofxOculusDK2::setup() {
 
     //updateHmdSettings();
 
-    for (int eye = 0; eye < 2; ++eye)
-    {
-		ovrSizei idealTextureSize = ovr_GetFovTextureSize(session, ovrEyeType(eye), hmdDesc.DefaultEyeFov[eye], 1);
-		eyeRenderTexture[eye] = new TextureBuffer(session, true, true, idealTextureSize, 1, NULL, 1);
-        eyeDepthBuffer[eye]   = new DepthBuffer(eyeRenderTexture[eye]->GetSize(), 0);
+	for( int eye = 0; eye < 2; eye++ ){
+		eyeViewports[eye] = toOf(OVR::Recti(ovr_GetFovTextureSize(session, ovrEyeType(eye), hmdDesc.DefaultEyeFov[eye], 1)));
+	}
 
-        if (!eyeRenderTexture[eye]->TextureChain)
-        {
-			ofLogError() << "Failed to create texture chain";
-        }
-
-        //eyeRenderDesc[eye] = ovr_GetRenderDesc(session, ovrEyeType(eye), hmdDesc.DefaultEyeFov[eye]);
-		//hmdToEyeViewOffsets[eye] = eyeRenderDesc[eye].HmdToEyeOffset;
-    }
+	eyeLayer = new EyeFovLayer( session, hmdDesc );
+	backgroundLayer = new EyeFovLayer( session, hmdDesc, true, false ); //monoscopic, no depth
+	transitionLayer = new EyeFovLayer( session, hmdDesc, true, false ); // mponoscopic, no depth
 
 	ovrMirrorTextureDesc desc;
     memset(&desc, 0, sizeof(desc));
@@ -240,8 +239,7 @@ bool ofxOculusDK2::setup() {
 
 	renderTargetSize = hmdDesc.Resolution;
 
-	//initializeMirrorTexture(windowSize);
-    backgroundTarget.allocate(renderTargetSize.w/2, renderTargetSize.h);
+	//draw into background
 
 	bSetup = true;
     return true;
@@ -327,21 +325,10 @@ ofMatrix4x4 ofxOculusDK2::getViewMatrix(ovrEyeType eye) {
 
 void ofxOculusDK2::setupEyeParams(ovrEyeType eye) {
 
-	eyeRenderTexture[eye]->SetAndClearRenderSurface(eyeDepthBuffer[eye]);
+	transitionLayer->begin( ovrEyeType(eye), eyeRenderPose[eye], sensorSampleTime );
+	transitionLayer->end();
 
-	if(bUseBackground){
-		glPushAttrib(GL_ALL_ATTRIB_BITS);
-		glDisable(GL_LIGHTING);
-		ofDisableDepthTest();
-		//backgroundTarget.getTextureReference().draw(toOf(eyeRenderViewport[eye]));
-		glPopAttrib();
-    }
-	
-
-	//JG: Cannot use ofViewport here for some reason, need to call gl directly	
-    //ofViewport(toOf(sceneLayer.Viewport[eye]));
-	//ofRectangle viewport = getOculusViewport(eye);
-	//glViewport(	viewport.x,viewport.y,viewport.width,viewport.height);
+	eyeLayer->begin( eye, eyeRenderPose[eye], sensorSampleTime );
 
 	ofSetMatrixMode(OF_MATRIX_PROJECTION);
     ofLoadIdentityMatrix();
@@ -353,26 +340,31 @@ void ofxOculusDK2::setupEyeParams(ovrEyeType eye) {
 }
 
 ofRectangle ofxOculusDK2::getOculusViewport(ovrEyeType eye) {
-    return toOf(layer.Viewport[eye]);
+	return eyeViewports[eye];
 }
 
 void ofxOculusDK2::beginBackground() {
     bUseBackground = true;
     insideFrame = true;
-    backgroundTarget.begin(false);
-    ofClear(0.0, 0.0, 0.0);
-    ofPushView();
-    ofPushMatrix();
-    ofViewport(getOculusViewport());
+    
+	if(!bSetFrameData)
+		grabFrameData();
+
+	backgroundLayer->begin( ovrEyeType(0), eyeRenderPose[0], sensorSampleTime );
 }
 
 void ofxOculusDK2::endBackground() {
-    ofPopMatrix();
-    ofPopView();
-    backgroundTarget.end();
+	backgroundLayer->end();
 }
 
+void ofxOculusDK2::setFadeOut( float fade )
+{
+	fadeAmt = fade;
+}
+
+/*
 void ofxOculusDK2::beginOverlay(float overlayZ, float scale,  float width, float height){
+	
 	bUseOverlay = true;
 	overlayZDistance = overlayZ;
 	
@@ -399,13 +391,26 @@ void ofxOculusDK2::beginOverlay(float overlayZ, float scale,  float width, float
 	
     ofPushView();
     ofPushMatrix();
+
 }
+	*/
 
+//void ofxOculusDK2::endOverlay() {
+   // ofPopMatrix();
+    ///ofPopView();
+   // overlayTarget.end();
+//}
 
-void ofxOculusDK2::endOverlay() {
-    ofPopMatrix();
-    ofPopView();
-    overlayTarget.end();
+void ofxOculusDK2::grabFrameData()
+{
+	eyeRenderDesc[0] = ovr_GetRenderDesc(session, ovrEye_Left, hmdDesc.DefaultEyeFov[0]);
+	eyeRenderDesc[1] = ovr_GetRenderDesc(session, ovrEye_Right, hmdDesc.DefaultEyeFov[1]);
+
+	hmdToEyeOffset[0] = eyeRenderDesc[0].HmdToEyeOffset; 
+	hmdToEyeOffset[1] =	eyeRenderDesc[1].HmdToEyeOffset;
+
+	ovr_GetEyePoses(session, frameIndex, ovrTrue, hmdToEyeOffset, eyeRenderPose, &sensorSampleTime);
+	bSetFrameData = true;
 }
 
 void ofxOculusDK2::beginLeftEye() {
@@ -415,13 +420,19 @@ void ofxOculusDK2::beginLeftEye() {
 	//TODO:
 	//if(!isVisible) return;
 
-	eyeRenderDesc[0] = ovr_GetRenderDesc(session, ovrEye_Left, hmdDesc.DefaultEyeFov[0]);
-	eyeRenderDesc[1] = ovr_GetRenderDesc(session, ovrEye_Right, hmdDesc.DefaultEyeFov[1]);
+	if(!bSetFrameData)
+		grabFrameData();
 
-	hmdToEyeOffset[0] = eyeRenderDesc[0].HmdToEyeOffset; 
-	hmdToEyeOffset[1] =	eyeRenderDesc[1].HmdToEyeOffset;
-
-	ovr_GetEyePoses(session, frameIndex, ovrTrue, hmdToEyeOffset, eyeRenderPose, &sensorSampleTime);
+	//if( !isFadedDown && isFading ){
+	transitionLayer->setClearColor( ofFloatColor(fadeColor.r,fadeColor.g, fadeColor.b, fadeAmt ) );
+	
+		//transitionLayer->begin( ovrEyeType(1), eyeRenderPose[1], sensorSampleTime );
+		//transitionLayer->end();
+	//}
+	
+	if(fadeAmt == 1.0 ){ isFadedDown = true; isFading = false; }
+	else if( fadeAmt == 0.0 ){ isFadedDown = false; isFading = false; }
+	else { isFading = true; isFadedDown = false; }
 
 //	double ftiming = ovr_GetPredictedDisplayTime( session, 0 );
 //	sensorSampleTime = ovr_GetTimeInSeconds();
@@ -452,19 +463,11 @@ void ofxOculusDK2::beginLeftEye() {
 void ofxOculusDK2::endLeftEye() {
     if (!bSetup) return;
 
-    if (bUseOverlay) {
-        renderOverlay();
-    }
+   // if (bUseOverlay) {
+   //     renderOverlay();
+   // }
 
-	// Avoids an error when calling SetAndClearRenderSurface during next iteration.
-	// Without this, during the next while loop iteration SetAndClearRenderSurface
-	// would bind a framebuffer with an invalid COLOR_ATTACHMENT0 because the texture ID
-	// associated with COLOR_ATTACHMENT0 had been unlocked by calling wglDXUnlockObjectsNV.
-	eyeRenderTexture[ovrEye_Left]->UnsetRenderSurface();
-
-	// Commit changes to the textures so they get picked up frame
-	eyeRenderTexture[ovrEye_Left]->Commit();
-
+	eyeLayer->end();
 
     ofPopMatrix();
     ofPopView();
@@ -482,37 +485,33 @@ void ofxOculusDK2::beginRightEye() {
 void ofxOculusDK2::endRightEye() {
     if (!bSetup) return;
 
-    if (bUseOverlay) {
-        renderOverlay();
-    }
+   // if (bUseOverlay) {
+   //     renderOverlay();
+   // }
 
-	// Avoids an error when calling SetAndClearRenderSurface during next iteration.
-	// Without this, during the next while loop iteration SetAndClearRenderSurface
-	// would bind a framebuffer with an invalid COLOR_ATTACHMENT0 because the texture ID
-	// associated with COLOR_ATTACHMENT0 had been unlocked by calling wglDXUnlockObjectsNV.
-	eyeRenderTexture[ovrEye_Right]->UnsetRenderSurface();
-
-	// Commit changes to the textures so they get picked up frame
-	eyeRenderTexture[ovrEye_Right]->Commit();
+	eyeLayer->end();
 
     ofPopMatrix();
     ofPopView();
 	
-	
-    layer.Header.Type  = ovrLayerType_EyeFov;
-	//layer.Header.Flags = ovrLayerFlag_HighQuality;
-	layer.Header.Flags = 0;
-    for (int eye = 0; eye < 2; ++eye)
-    {
-        layer.ColorTexture[eye] = eyeRenderTexture[eye]->TextureChain;
-        layer.Viewport[eye]     = OVR::Recti(eyeRenderTexture[eye]->GetSize());
-        layer.Fov[eye]          = hmdDesc.DefaultEyeFov[eye];
-        layer.RenderPose[eye]   = eyeRenderPose[eye];
-        layer.SensorSampleTime  = sensorSampleTime;
-    }
+	//SUBMITE FRAME
 
-    ovrLayerHeader* layers = &layer.Header;
-    ovrResult result = ovr_SubmitFrame(session, frameIndex, nullptr, &layers, 1);
+	ovrViewScaleDesc viewScaleDesc;
+	viewScaleDesc.HmdSpaceToWorldScaleInMeters = 1.0f;
+	viewScaleDesc.HmdToEyeOffset[0] = hmdToEyeOffset[0];
+	viewScaleDesc.HmdToEyeOffset[1] = hmdToEyeOffset[1];
+
+	std::vector<ovrLayerHeader*> layers;
+	if( bUseBackground ){
+		layers.push_back(&backgroundLayer->getHeader());
+	}
+	layers.push_back( &eyeLayer->getHeader() );
+	if( isFading || isFadedDown ){
+		layers.push_back( &transitionLayer->getHeader() );
+	}
+	ovrResult result = ovr_SubmitFrame(session, frameIndex, &viewScaleDesc, layers.data(), layers.size() );
+	bSetFrameData = false;
+
     // exit the rendering loop if submit returns an error, will retry on ovrError_DisplayLost
     if (!OVR_SUCCESS(result)){
 		ofLogError() << "OVR Render Error";
@@ -564,6 +563,7 @@ void ofxOculusDK2::endRightEye() {
 
 }
 
+/*
 void ofxOculusDK2::renderOverlay() {
 
     // cout << "renering overlay!" << endl;
@@ -596,6 +596,8 @@ void ofxOculusDK2::renderOverlay() {
     ofPopStyle();
 
 }
+
+*/
 
 ofVec3f ofxOculusDK2::worldToScreen(ofVec3f worldPosition, bool considerHeadOrientation) {
 
