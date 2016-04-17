@@ -148,7 +148,7 @@ struct TextureBuffer : public TextureBufferBase
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
             }
 
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8_ALPHA8, texSize.w, texSize.h, 1, GL_RGBA, GL_UNSIGNED_BYTE, data);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8_ALPHA8, texSize.w, texSize.h, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
         }
 
         if (mipLevels > 1)
@@ -541,9 +541,13 @@ public:
             overlayTarget.getWidth(),
             overlayTarget.getHeight());
     }
+
     ofFbo& getOverlayTarget() {
         return overlayTarget;
     }
+	*/
+
+	/*
     ofFbo& getBackgroundTarget() {
         return backgroundTarget;
     }
@@ -625,7 +629,7 @@ private:
 
 	
     //ofFbo renderTarget;
-    ofFbo overlayTarget;
+   // ofFbo overlayTarget;
    // ofShader distortionShader;
 
     //ofShader debugShader;   // XXX mattebb

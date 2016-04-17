@@ -348,10 +348,6 @@ ofRectangle ofxOculusDK2::getOculusViewport(ovrEyeType eye) {
 void ofxOculusDK2::beginBackground() {
     bUseBackground = true;
     insideFrame = true;
-    
-	if(!bSetFrameData)
-		grabFrameData();
-	backgroundLayer->setClearColor(ofFloatColor(0.,0.,1.,1.));
 	backgroundLayer->begin( ovrEyeType(0) );
 }
 
@@ -376,7 +372,7 @@ void ofxOculusDK2::setFadeOut( float fade )
 
 }
 
-
+/*
 void ofxOculusDK2::beginOverlay(float overlayZ, float scale,  float width, float height){
 	
 	bUseOverlay = true;
@@ -413,7 +409,7 @@ void ofxOculusDK2::endOverlay() {
     ofPopView();
 	overlayTarget.end();
 }
-
+*/
 void ofxOculusDK2::grabFrameData()
 {
 	eyeRenderDesc[0] = ovr_GetRenderDesc(session, ovrEye_Left, hmdDesc.DefaultEyeFov[0]);
@@ -475,7 +471,7 @@ void ofxOculusDK2::endLeftEye() {
     if (!bSetup) return;
 
     if (bUseOverlay) {
-        renderOverlay();
+       // renderOverlay();
     }
 
 	eyeLayer->end();
@@ -500,7 +496,7 @@ void ofxOculusDK2::endRightEye() {
     if (!bSetup) return;
 
     if (bUseOverlay) {
-        renderOverlay();
+       // renderOverlay();
     }
 
 	eyeLayer->end();
@@ -577,7 +573,7 @@ void ofxOculusDK2::endRightEye() {
 
 }
 
-
+/*
 void ofxOculusDK2::renderOverlay() {
 
     // cout << "renering overlay!" << endl;
@@ -609,7 +605,7 @@ void ofxOculusDK2::renderOverlay() {
     ofPopStyle();
 
 }
-
+*/
 
 
 ofVec3f ofxOculusDK2::worldToScreen(ofVec3f worldPosition, bool considerHeadOrientation) {
