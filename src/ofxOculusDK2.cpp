@@ -2,11 +2,12 @@
 //  ofxOculusDK2.cpp
 //  OculusRiftRendering
 //
-//  Created by Andreas Müller on 30/04/2013.
+//  Created by Andreas Müller on April 2013
 //  Updated by James George September 27th 2013
 //  Updated by Jason Walters October 22 2013
 //  Adapted to DK2 by James George and Elie Zananiri August 2014
 //  Updated for DK2 by Matt Ebb October 2014
+//  Updated for CV1 by James George & Mike Allison April 2016
 
 
 #include "ofxOculusDK2.h"
@@ -23,7 +24,7 @@ ofMatrix4x4 toOf(const ovrMatrix4f& m) {
         m.M[0][3], m.M[1][3], m.M[2][3], m.M[3][3]);
 }
 
-ovrMatrix4f toOVR(const ofMatrix4x4& m) {
+OVR::Matrix4f toOVR(const ofMatrix4x4& m) {
     const float* cm = m.getPtr();
     ovrMatrix4f om;
     om.M[0][0] = cm[0]; om.M[1][0] = cm[1]; om.M[2][0] = cm[2]; om.M[3][0] = cm[3];
@@ -299,7 +300,6 @@ ofQuaternion ofxOculusDK2::getOrientationQuat() {
 }
 
 ofMatrix4x4 ofxOculusDK2::getProjectionMatrix(ovrEyeType eye) {
-	//TODO: respect near/far plans
 	unsigned int projectionModifier = ovrProjection_None | ovrProjection_ClipRangeOpenGL;
 //	unsigned int projectionModifier = ovrProjection_ClipRangeOpenGL;
 	return toOf(ovrMatrix4f_Projection(eyeRenderDesc[eye].Fov, baseCamera->getNearClip(), baseCamera->getFarClip(), projectionModifier));
@@ -307,14 +307,25 @@ ofMatrix4x4 ofxOculusDK2::getProjectionMatrix(ovrEyeType eye) {
 
 ofMatrix4x4 ofxOculusDK2::getViewMatrix(ovrEyeType eye) {
 
-	ofMatrix4x4 baseCameraMatrix = baseCamera->getModelViewMatrix();
-	
-	//cout << "POSE POSITION " << toOf(eyeRenderPose[eye].Position) << endl;
+//	ofMatrix4x4 baseCameraMatrix = baseCamera->getModelViewMatrix();
+	OVR::Matrix4f rollPitchYaw = OVR::Matrix4f::RotationY(DEG_TO_RAD * 180); //turn cam around
+	OVR::Matrix4f finalRollPitchYaw =  (  OVR::Matrix4f(eyeRenderPose[eye].Orientation) * toOVR(ofMatrix4x4( baseCamera->getOrientationQuat())) ); 
+	OVR::Vector3f finalUp = finalRollPitchYaw.Transform( toOVR(baseCamera->getUpDir()) ); // OVR::Vector3f(0, 1, 0)
+	OVR::Vector3f finalForward = finalRollPitchYaw.Transform( toOVR(baseCamera->getLookAtDir()) ); //OVR::Vector3f(0, 0, -1));
+	OVR::Vector3f shiftedEyePos = eyeRenderPose[eye].Position;
+	shiftedEyePos.x *= 50;
+	shiftedEyePos.y *= 50;
+	shiftedEyePos.z *= 50;
+	shiftedEyePos.x += baseCamera->getPosition().x;
+	shiftedEyePos.y += baseCamera->getPosition().y;
+	shiftedEyePos.z += baseCamera->getPosition().z;
 
-    ofMatrix4x4 hmdView =  ofMatrix4x4::newTranslationMatrix(toOf(eyeRenderPose[eye].Position) )  * 
-		ofMatrix4x4::newRotationMatrix(toOf(eyeRenderPose[eye].Orientation));
+    OVR::Matrix4f view = OVR::Matrix4f::LookAtRH(shiftedEyePos, shiftedEyePos + finalForward, finalUp);
+	return toOf(view);
 
-	return baseCameraMatrix * hmdView.getInverse();
+//    ofMatrix4x4 hmdView = ofMatrix4x4::newTranslationMatrix(toOf(eyeRenderPose[eye].Position))  * 
+//		ofMatrix4x4::newRotationMatrix(toOf(eyeRenderPose[eye].Orientation));
+//	return baseCameraMatrix * hmdView.getInverse();
 }
 
 void ofxOculusDK2::setupEyeParams(ovrEyeType eye) {
