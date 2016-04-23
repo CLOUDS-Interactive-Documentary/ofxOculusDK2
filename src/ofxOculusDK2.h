@@ -37,15 +37,8 @@ struct DepthBuffer : public TextureBufferBase
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
         GLenum internalFormat = GL_DEPTH_COMPONENT32F;
         GLenum type = GL_FLOAT;
-//        if (GLE_ARB_depth_buffer_float)
-//        {
-//            internalFormat = GL_DEPTH_COMPONENT32F;
-//            type = GL_FLOAT;
-//        }
-
         glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, size.w, size.h, 0, GL_DEPTH_COMPONENT, type, NULL);
     }
     ~DepthBuffer()
@@ -374,7 +367,6 @@ public:
 			ovrVector2f s;
 			s.x = size.x;
 			s.y = size.y;
-			//TODO check this
 			layer.Quad.QuadSize = s;
 	}
 
@@ -398,13 +390,13 @@ public:
 		if( layer.Quad.Viewport.Size.w != allocation_width || layer.Quad.Viewport.Size.h != allocation_height || !bIsAllocated ){
 			layer.Quad.Viewport.Size.w = allocation_width;
 			layer.Quad.Viewport.Size.h = allocation_height;
-			quadTexture = std::shared_ptr<TextureBuffer>(new TextureBuffer(rSession, true, true, OVR::Sizei(allocation_width, allocation_height), mip_levels, NULL, 1));
+			quadTexture = std::shared_ptr<TextureBuffer>(new TextureBuffer(session, true, true, OVR::Sizei(allocation_width, allocation_height), mip_levels, NULL, 1));
 			layer.Quad.ColorTexture = quadTexture->TextureChain;
 			bIsAllocated = true;
 		}
 	}
 
-	QuadLayer( ovrSession &session ) : currentEye(ovrEyeType::ovrEye_Left), bIsAllocated(false), rSession(session)
+	QuadLayer( ovrSession s ) : currentEye(ovrEyeType::ovrEye_Left), bIsAllocated(false), session(s)
 	{
 		layer.Quad.Header.Type  = ovrLayerType_Quad;
 		layer.Quad.Header.Flags = ovrLayerFlag_HighQuality;
@@ -453,7 +445,7 @@ public:
 
 private:
 
-	ovrSession & rSession;
+	ovrSession session;
 	bool bIsAllocated;
 	ovrEyeType currentEye;
 	std::shared_ptr<TextureBuffer> quadTexture;
@@ -500,27 +492,11 @@ public:
 
     void draw();
 
-    void dismissSafetyWarning();
     void recenterPose();
 
     float getUserEyeHeight(); // from standing height configured in oculus config user profile
 
     bool getPositionTracking();
-    void setPositionTracking(bool state);
-
-    bool getNoMirrorToWindow();
-    void setNoMirrorToWindow(bool state);
-    bool getSRGB();
-    void setSRGB(bool state);
-    bool getOverdrive();
-    void setOverdrive(bool state);
-    bool getHqDistortion();
-    void setHqDistortion(bool state);
-    bool getTimewarpJitDelay();
-    void setTimewarpJitDelay(bool state);
-
-    float getPixelDensity();
-    void setPixelDensity(float density);
 
     ofQuaternion getOrientationQuat();
     ofMatrix4x4 getOrientationMat();
@@ -528,63 +504,63 @@ public:
 
     //default 1 has more constrained mouse movement,
     //while turning it up increases the reach of the mouse
-    float oculusScreenSpaceScale;
+    float				oculusScreenSpaceScale;
 
     //projects a 3D point into 2D, optionally accounting for the head orientation
-    ofVec3f worldToScreen(ofVec3f worldPosition, bool considerHeadOrientation = false);
-    ofVec3f screenToWorld(ofVec3f screenPt, bool considerHeadOrientation = false);
-    ofVec3f screenToOculus2D(ofVec3f screenPt, bool considerHeadOrientation = false);
+    ofVec3f				worldToScreen(ofVec3f worldPosition, bool considerHeadOrientation = false);
+    ofVec3f				screenToWorld(ofVec3f screenPt, bool considerHeadOrientation = false);
+    ofVec3f				screenToOculus2D(ofVec3f screenPt, bool considerHeadOrientation = false);
 
     //returns a 3d position of the mouse projected in front of the camera, at point z
-    ofVec3f mousePosition3D(float z = 0, bool considerHeadOrientation = false);
-
-    ofVec2f gazePosition2D();
+    ofVec3f				mousePosition3D(float z = 0, bool considerHeadOrientation = false);
+    ofVec2f				gazePosition2D();
 
     //sets up the view so that things drawn in 2D are billboarded to the caemra,
     //centered at the mouse
     //Good way to draw custom cursors. don't forget to push/pop matrix around the call
-    void multBillboardMatrix();
-    void multBillboardMatrix(ofVec3f objectPosition, ofVec3f upDirection = ofVec3f(0, 1, 0));
+    void				multBillboardMatrix();
+    void				multBillboardMatrix(ofVec3f objectPosition, ofVec3f upDirection = ofVec3f(0, 1, 0));
 
-    float distanceFromMouse(ofVec3f worldPoint);
-    float distanceFromScreenPoint(ofVec3f worldPoint, ofVec2f screenPoint);
+    float				distanceFromMouse(ofVec3f worldPoint);
+    float				distanceFromScreenPoint(ofVec3f worldPoint, ofVec2f screenPoint);
 
-	
-    ofRectangle getOverlayRectangle() {
-		return ofRectangle(0, 0, hudLayer->getQuadResolution().x, hudLayer->getQuadResolution().y);
-    }
+    ofRectangle			getOverlayRectangle() { return ofRectangle(0, 0, hudLayer->getQuadResolution().x, hudLayer->getQuadResolution().y); }
 
-  //  ofFbo& getOverlayTarget() {
-   //     return *overlayTarget;
-  //  }
-	
-	ofRectangle getOculusViewport(ovrEyeType eye = ovrEye_Left);
-    bool isHD();
+	ofRectangle			getOculusViewport(ovrEyeType eye = ovrEye_Left);
+    bool				isHD();
     //allows you to disable moving the camera based on inner ocular distance
+
+	ofMatrix4x4			getProjectionMatrix(ovrEyeType eye);
+    ofMatrix4x4			getViewMatrix(ovrEyeType eye);
 
 private:
 
-    bool bSetup;
-    bool insideFrame;
+	void				onWindowResizeEvent( ofResizeEventArgs& args );
 
-    bool bPositionTracking;
+	bool				createSession();
+	bool				detectHDM();
+	void				initialize();
+	void				uninitialize();
+	void				initializeMirrorTexture( int width, int height );
+	void				destroyMirrorTexture();
+	void				blitMirrorTexture();
 
-    bool bSRGB;
-    bool bHqDistortion;
+    bool				bSetup;
+    bool				insideFrame;
+    bool				bPositionTracking;
+    bool				bSRGB;
+    bool				bUseBackground;
+    bool				bUseOverlay;
 
-    bool bUseBackground;
-    bool bUseOverlay;
-    float overlayZDistance;
+	bool				isFading;
+	bool				isFadedDown;
+	float				fadeAmt;
+	ofFloatColor		fadeColor;
 
-	float fadeAmt;
-	ofFloatColor fadeColor;
-	bool isFading;
-	bool isFadedDown;
+	bool				bSetFrameData;
+	void				grabFrameData();
 
-	bool bSetFrameData;
-	void grabFrameData();
-
-	bool skipFrame;
+	bool				skipFrame;
 
     ovrSession			session;
     ovrHmdDesc          hmdDesc;
@@ -606,33 +582,10 @@ private:
 	bool				isVisible;
 	double				sensorSampleTime;
 
-	void initializeMirrorTexture( ovrSizei size );
-	void destroyMirrorTexture();
+	ofRectangle			eyeViewports[ 2 ];
 
-    ovrSizei               windowSize;
-	ofRectangle			   eyeViewports[ 2 ];
+    ofMatrix4x4			orientationMatrix;
 
-    ofMesh overlayMesh;
-    ofMatrix4x4 orientationMatrix;
+    void				setupEyeParams(ovrEyeType eye);
 
-    ofFbo::Settings renderTargetFboSettings();
-
-    float pixelDensity;
-    ovrSizei renderTargetSize;
-
-    ofPtr<ofFbo> overlayTarget;
-
-    bool getHmdCap(unsigned int cap);
-
-    void setupEyeParams(ovrEyeType eye);
-    void setupShaderUniforms(ovrEyeType eye);
-
-    ofMatrix4x4 getProjectionMatrix(ovrEyeType eye);
-    ofMatrix4x4 getViewMatrix(ovrEyeType eye);
-
-    void renderOverlay();
-
-    void updateHmdSettings();
-    unsigned int setupDistortionCaps();
-    unsigned int setupHmdCaps();
 };
