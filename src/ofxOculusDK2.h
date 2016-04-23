@@ -507,9 +507,9 @@ public:
     float				oculusScreenSpaceScale;
 
     //projects a 3D point into 2D, optionally accounting for the head orientation
-    ofVec3f				worldToScreen(ofVec3f worldPosition, bool considerHeadOrientation = false);
-    ofVec3f				screenToWorld(ofVec3f screenPt, bool considerHeadOrientation = false);
-    ofVec3f				screenToOculus2D(ofVec3f screenPt, bool considerHeadOrientation = false);
+    ofVec3f worldToScreen(ofVec3f worldPosition);
+    ofVec3f screenToWorld(ofVec3f screenPt, bool considerHeadOrientation = false);
+    ofVec3f screenToOculus2D(ofVec3f screenPt, bool considerHeadOrientation = false);
 
     //returns a 3d position of the mouse projected in front of the camera, at point z
     ofVec3f				mousePosition3D(float z = 0, bool considerHeadOrientation = false);
@@ -523,6 +523,9 @@ public:
 
     float				distanceFromMouse(ofVec3f worldPoint);
     float				distanceFromScreenPoint(ofVec3f worldPoint, ofVec2f screenPoint);
+
+	void setPlayerScale(float scale);
+	float getPlayerScale();
 
     ofRectangle			getOverlayRectangle() { return ofRectangle(0, 0, hudLayer->getQuadResolution().x, hudLayer->getQuadResolution().y); }
 
@@ -544,6 +547,9 @@ private:
 	void				initializeMirrorTexture( int width, int height );
 	void				destroyMirrorTexture();
 	void				blitMirrorTexture();
+
+	//how much to scale the player by with positional tracking
+	float currentPlayerScale;
 
     bool				bSetup;
     bool				insideFrame;

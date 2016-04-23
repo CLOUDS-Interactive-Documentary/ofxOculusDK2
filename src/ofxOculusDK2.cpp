@@ -82,6 +82,7 @@ ofxOculusDK2::ofxOculusDK2() {
 	baseCamera = nullptr;
 	lockView = false;
 	oculusScreenSpaceScale = 2.0f;
+	currentPlayerScale = 1.0;
 
 	//JG added default values
     bSetup = false;
@@ -263,6 +264,14 @@ bool ofxOculusDK2::getPositionTracking(void) {
     return bPositionTracking;
 }
 
+void ofxOculusDK2::setPlayerScale(float scale){
+	currentPlayerScale = scale;
+}
+
+float ofxOculusDK2::getPlayerScale(){
+	return currentPlayerScale;
+}
+
 void ofxOculusDK2::reset() {
    if (bSetup) {
         ovr_RecenterTrackingOrigin(session);
@@ -291,20 +300,18 @@ ofMatrix4x4 ofxOculusDK2::getViewMatrix(ovrEyeType eye) {
 	OVR::Vector3f finalUp = finalRollPitchYaw.Transform( OVR::Vector3f(0, 1, 0)); // 
 	OVR::Vector3f finalForward = finalRollPitchYaw.Transform( OVR::Vector3f(0, 0, -1)); //
 	OVR::Vector3f shiftedEyePos = toOVR(ofMatrix4x4( baseCamera->getOrientationQuat())).Transform( eyeRenderPose[eye].Position );
-	shiftedEyePos.x *= 50;
-	shiftedEyePos.y *= 50;
-	shiftedEyePos.z *= 50;
-
-	shiftedEyePos.x += baseCamera->getPosition().x;
-	shiftedEyePos.y += baseCamera->getPosition().y;
-	shiftedEyePos.z += baseCamera->getPosition().z;
+	//apply scale
+	shiftedEyePos *= currentPlayerScale;
+//	shiftedEyePos.x *= currentPlayerScale;
+//	shiftedEyePos.y *= currentPlayerScale;
+//	shiftedEyePos.z *= currentPlayerScale;
+	shiftedEyePos += toOVR( baseCamera->getPosition() );
+//	shiftedEyePos.x += baseCamera->getPosition().x;
+//	shiftedEyePos.y += baseCamera->getPosition().y;
+//	shiftedEyePos.z += baseCamera->getPosition().z;
 
     OVR::Matrix4f view = OVR::Matrix4f::LookAtRH(shiftedEyePos, shiftedEyePos + finalForward, finalUp);
 	return toOf(view);
-
-//    ofMatrix4x4 hmdView = ofMatrix4x4::newTranslationMatrix(toOf(eyeRenderPose[eye].Position))  * 
-//		ofMatrix4x4::newRotationMatrix(toOf(eyeRenderPose[eye].Orientation));
-//	return baseCameraMatrix * hmdView.getInverse();
 }
 
 void ofxOculusDK2::setupEyeParams(ovrEyeType eye) {
@@ -547,39 +554,36 @@ void ofxOculusDK2::endRightEye() {
 }
 
 
-ofVec3f ofxOculusDK2::worldToScreen(ofVec3f worldPosition, bool considerHeadOrientation) {
+ofVec3f ofxOculusDK2::worldToScreen(ofVec3f worldPosition) {
 
     if (baseCamera == NULL) {
         return ofVec3f(0, 0, 0);
     }
 
     ofRectangle viewport = getOculusViewport();
+	ofCamera cam;
 
-    //ofMatrix4x4 projectedLeft = getViewMatrix(ovrEye_Left) * getProjectionMatrix(ovrEye_Right);
+//	cam.worldToCamera();
+    // We'll combine both left and right eye projections to get a midpoint.
 
-    if (considerHeadOrientation) {
-        // We'll combine both left and right eye projections to get a midpoint.
+    ofMatrix4x4 projectionMatrixLeft = toOf(ovrMatrix4f_Projection(eyeRenderDesc[ovrEye_Left].Fov, 0.01f, 10000.0f, true));
+    ofMatrix4x4 projectionMatrixRight = toOf(ovrMatrix4f_Projection(eyeRenderDesc[ovrEye_Right].Fov, 0.01f, 10000.0f, true));
 
-        ofMatrix4x4 projectionMatrixLeft = toOf(ovrMatrix4f_Projection(eyeRenderDesc[ovrEye_Left].Fov, 0.01f, 10000.0f, true));
-        ofMatrix4x4 projectionMatrixRight = toOf(ovrMatrix4f_Projection(eyeRenderDesc[ovrEye_Right].Fov, 0.01f, 10000.0f, true));
+    ofMatrix4x4 modelViewMatrix = getOrientationMat();
+    modelViewMatrix = modelViewMatrix * baseCamera->getGlobalTransformMatrix();
+    baseCamera->begin(viewport);
+    baseCamera->end();
+    modelViewMatrix = modelViewMatrix.getInverse();
 
-        ofMatrix4x4 modelViewMatrix = getOrientationMat();
-        modelViewMatrix = modelViewMatrix * baseCamera->getGlobalTransformMatrix();
-        baseCamera->begin(viewport);
-        baseCamera->end();
-        modelViewMatrix = modelViewMatrix.getInverse();
+    ofVec3f cameraXYZ = worldPosition * (modelViewMatrix * projectionMatrixLeft);
+    cameraXYZ.interpolate(worldPosition * (modelViewMatrix * projectionMatrixRight), 0.5f);
 
-        ofVec3f cameraXYZ = worldPosition * (modelViewMatrix * projectionMatrixLeft);
-        cameraXYZ.interpolate(worldPosition * (modelViewMatrix * projectionMatrixRight), 0.5f);
+    ofVec3f screenXYZ((cameraXYZ.x + 1.0f) / 2.0f * viewport.width + viewport.x,
+        (1.0f - cameraXYZ.y) / 2.0f * viewport.height + viewport.y,
+        cameraXYZ.z);
+    return screenXYZ;
 
-        ofVec3f screenXYZ((cameraXYZ.x + 1.0f) / 2.0f * viewport.width + viewport.x,
-            (1.0f - cameraXYZ.y) / 2.0f * viewport.height + viewport.y,
-            cameraXYZ.z);
-        return screenXYZ;
-
-    }
-
-    return baseCamera->worldToScreen(worldPosition, viewport);
+//    return baseCamera->worldToScreen(worldPosition, viewport);
 }
 
 ofMatrix4x4 ofxOculusDK2::getOrientationMat() {
