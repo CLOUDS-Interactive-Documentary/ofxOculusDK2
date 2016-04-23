@@ -414,6 +414,9 @@ void ofxOculusDK2::endOverlay() {
 
 void ofxOculusDK2::grabFrameData()
 {
+	baseCamera->begin(getOculusViewport());
+    baseCamera->end();
+
 	eyeRenderDesc[0] = ovr_GetRenderDesc(session, ovrEye_Left, hmdDesc.DefaultEyeFov[0]);
 	eyeRenderDesc[1] = ovr_GetRenderDesc(session, ovrEye_Right, hmdDesc.DefaultEyeFov[1]);
 
@@ -431,10 +434,13 @@ void ofxOculusDK2::beginLeftEye() {
 	//TODO:
 	//if(!isVisible) return;
 
-	if(!bSetFrameData)
+	if(!bSetFrameData){
 		grabFrameData();
-	/* baseCamera->begin(getOculusViewport());
-    baseCamera->end();
+	}
+
+
+
+	/* 
 
 	eyeRenderDesc[0] = ovr_GetRenderDesc(session, ovrEye_Left, hmdDesc.DefaultEyeFov[0]);
 	eyeRenderDesc[1] = ovr_GetRenderDesc(session, ovrEye_Right, hmdDesc.DefaultEyeFov[1]);
