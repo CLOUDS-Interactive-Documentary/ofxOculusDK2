@@ -310,14 +310,15 @@ ofMatrix4x4 ofxOculusDK2::getProjectionMatrix(ovrEyeType eye) {
 ofMatrix4x4 ofxOculusDK2::getViewMatrix(ovrEyeType eye) {
 
 //	ofMatrix4x4 baseCameraMatrix = baseCamera->getModelViewMatrix();
-	OVR::Matrix4f rollPitchYaw = OVR::Matrix4f::RotationY(DEG_TO_RAD * 180); //turn cam around
-	OVR::Matrix4f finalRollPitchYaw =  (  OVR::Matrix4f(eyeRenderPose[eye].Orientation) * toOVR(ofMatrix4x4( baseCamera->getOrientationQuat())) ); 
-	OVR::Vector3f finalUp = finalRollPitchYaw.Transform( toOVR(baseCamera->getUpDir()) ); // OVR::Vector3f(0, 1, 0)
-	OVR::Vector3f finalForward = finalRollPitchYaw.Transform( toOVR(baseCamera->getLookAtDir()) ); //OVR::Vector3f(0, 0, -1));
-	OVR::Vector3f shiftedEyePos = eyeRenderPose[eye].Position;
+	//OVR::Matrix4f rollPitchYaw = OVR::Matrix4f::RotationY(DEG_TO_RAD * 180); //turn cam around
+	OVR::Matrix4f finalRollPitchYaw = toOVR(ofMatrix4x4( baseCamera->getOrientationQuat())) * OVR::Matrix4f(eyeRenderPose[eye].Orientation);
+	OVR::Vector3f finalUp = finalRollPitchYaw.Transform( OVR::Vector3f(0, 1, 0)); // 
+	OVR::Vector3f finalForward = finalRollPitchYaw.Transform( OVR::Vector3f(0, 0, -1)); //
+	OVR::Vector3f shiftedEyePos = toOVR(ofMatrix4x4( baseCamera->getOrientationQuat())).Transform( eyeRenderPose[eye].Position );
 	shiftedEyePos.x *= 50;
 	shiftedEyePos.y *= 50;
 	shiftedEyePos.z *= 50;
+
 	shiftedEyePos.x += baseCamera->getPosition().x;
 	shiftedEyePos.y += baseCamera->getPosition().y;
 	shiftedEyePos.z += baseCamera->getPosition().z;
