@@ -80,21 +80,17 @@ ofxOculusDK2::ofxOculusDK2() {
 	isVisible = true;
 	isFadedDown = false;
 	baseCamera = nullptr;
-	lockView = false;
-	oculusScreenSpaceScale = 2.0f;
+
 	currentPlayerScale = 1.0;
 
-	//JG added default values
     bSetup = false;
     insideFrame = false;
 	isFading = false;
 	fadeColor = ofFloatColor(0.,0.,0.,1.);
 	fadeAmt = 0;
 
-    bPositionTracking = true;
-
-    // distortion caps
-    bSRGB = true;
+//    bPositionTracking = true;
+//    bSRGB = true;
 
     bUseBackground = false;
     bUseOverlay = false;
@@ -257,13 +253,13 @@ bool ofxOculusDK2::isSetup() {
     return bSetup;
 }
 
-float ofxOculusDK2::getUserEyeHeight(void) {
+float ofxOculusDK2::getUserEyeHeight() {
     return ovr_GetFloat(session, OVR_KEY_EYE_HEIGHT, OVR_DEFAULT_EYE_HEIGHT);
 }
 
-bool ofxOculusDK2::getPositionTracking(void) {
-    return bPositionTracking;
-}
+//bool ofxOculusDK2::getPositionTracking(void) {
+//    return bPositionTracking;
+//}
 
 void ofxOculusDK2::setPlayerScale(float scale){
 	currentPlayerScale = scale;
@@ -279,37 +275,36 @@ void ofxOculusDK2::reset() {
     }
 }
 
+ofMatrix4x4 ofxOculusDK2::getOrientationMat() {
+	return ofMatrix4x4(getOrientationQuat());
+}
+
 ofQuaternion ofxOculusDK2::getOrientationQuat() {
+	return toOf(eyeRenderPose[0].Orientation);
+
+	/*
     ovrTrackingState ts = ovr_GetTrackingState(session, ovr_GetTimeInSeconds(), true);
     if (ts.StatusFlags & (ovrStatus_OrientationTracked | ovrStatus_PositionTracked)) {
         return toOf(ts.HeadPose.ThePose.Orientation);
     }
     return ofQuaternion();
+	*/
 }
 
 ofMatrix4x4 ofxOculusDK2::getProjectionMatrix(ovrEyeType eye) {
 	unsigned int projectionModifier = ovrProjection_None | ovrProjection_ClipRangeOpenGL;
-//	unsigned int projectionModifier = ovrProjection_ClipRangeOpenGL;
 	return toOf(ovrMatrix4f_Projection(eyeRenderDesc[eye].Fov, baseCamera->getNearClip(), baseCamera->getFarClip(), projectionModifier));
 }
 
 ofMatrix4x4 ofxOculusDK2::getViewMatrix(ovrEyeType eye) {
 
-//	ofMatrix4x4 baseCameraMatrix = baseCamera->getModelViewMatrix();
-	//OVR::Matrix4f rollPitchYaw = OVR::Matrix4f::RotationY(DEG_TO_RAD * 180); //turn cam around
 	OVR::Matrix4f finalRollPitchYaw = toOVR(ofMatrix4x4( baseCamera->getOrientationQuat())) * OVR::Matrix4f(eyeRenderPose[eye].Orientation);
 	OVR::Vector3f finalUp = finalRollPitchYaw.Transform( OVR::Vector3f(0, 1, 0)); // 
 	OVR::Vector3f finalForward = finalRollPitchYaw.Transform( OVR::Vector3f(0, 0, -1)); //
 	OVR::Vector3f shiftedEyePos = toOVR(ofMatrix4x4( baseCamera->getOrientationQuat())).Transform( eyeRenderPose[eye].Position );
 	//apply scale
 	shiftedEyePos *= currentPlayerScale;
-//	shiftedEyePos.x *= currentPlayerScale;
-//	shiftedEyePos.y *= currentPlayerScale;
-//	shiftedEyePos.z *= currentPlayerScale;
 	shiftedEyePos += toOVR( baseCamera->getPosition() );
-//	shiftedEyePos.x += baseCamera->getPosition().x;
-//	shiftedEyePos.y += baseCamera->getPosition().y;
-//	shiftedEyePos.z += baseCamera->getPosition().z;
 
     OVR::Matrix4f view = OVR::Matrix4f::LookAtRH(shiftedEyePos, shiftedEyePos + finalForward, finalUp);
 	return toOf(view);
@@ -384,10 +379,10 @@ void ofxOculusDK2::beginOverlay(float world_z , float scale,  int pixel_size_x, 
 	pose.Position.y = 0.0f;
 	pose.Position.z = z;
 
-	pose.Orientation.w = 1.0f;
 	pose.Orientation.x = 0.0f;
 	pose.Orientation.y = 0.0f;
 	pose.Orientation.z = 0.0f;
+	pose.Orientation.w = 1.0f;
 
 	hudLayer->setPose( pose );
 
@@ -434,7 +429,7 @@ void ofxOculusDK2::grabFrameData()
 	hmdToEyeOffset[1] =	eyeRenderDesc[1].HmdToEyeOffset;
 
 	auto recent_tracked_state = ovr_GetTrackingState(session, 0.0, false);
-	bPositionTracking = recent_tracked_state.StatusFlags & ovrStatusBits::ovrStatus_PositionTracked;
+	//bPositionTracking = recent_tracked_state.StatusFlags & ovrStatusBits::ovrStatus_PositionTracked;
 
 	ovr_GetEyePoses(session, frameIndex, ovrTrue, hmdToEyeOffset, eyeRenderPose, &sensorSampleTime);
 
@@ -478,8 +473,9 @@ void ofxOculusDK2::beginRightEye() {
     if (!bSetup) return;
 	//if(!isVisible) return;
 
-	if(!bSetFrameData)
+	if(!bSetFrameData){
 		grabFrameData();
+	}
 
     ofPushView();
     ofPushMatrix();
@@ -555,6 +551,8 @@ void ofxOculusDK2::endRightEye() {
 }
 
 
+//TODO: 
+// work with positional tracking
 ofVec3f ofxOculusDK2::worldToScreen(ofVec3f worldPosition) {
 
     if (baseCamera == NULL) {
@@ -562,10 +560,6 @@ ofVec3f ofxOculusDK2::worldToScreen(ofVec3f worldPosition) {
     }
 
     ofRectangle viewport = getOculusViewport();
-	ofCamera cam;
-
-//	cam.worldToCamera();
-    // We'll combine both left and right eye projections to get a midpoint.
 
     ofMatrix4x4 projectionMatrixLeft = toOf(ovrMatrix4f_Projection(eyeRenderDesc[ovrEye_Left].Fov, 0.01f, 10000.0f, true));
     ofMatrix4x4 projectionMatrixRight = toOf(ovrMatrix4f_Projection(eyeRenderDesc[ovrEye_Right].Fov, 0.01f, 10000.0f, true));
@@ -584,68 +578,9 @@ ofVec3f ofxOculusDK2::worldToScreen(ofVec3f worldPosition) {
         cameraXYZ.z);
     return screenXYZ;
 
-//    return baseCamera->worldToScreen(worldPosition, viewport);
 }
 
-ofMatrix4x4 ofxOculusDK2::getOrientationMat() {
-	//set to true
-    ovrTrackingState ts = ovr_GetTrackingState(session, ovr_GetTimeInSeconds(), true);
-
-    if (ts.StatusFlags & (ovrStatus_OrientationTracked | ovrStatus_PositionTracked)) {
-        return ofMatrix4x4(toOf(ts.HeadPose.ThePose.Orientation));
-    }
-    return ofMatrix4x4();
-}
-
-//TODO head orientation not considered
-ofVec3f ofxOculusDK2::screenToWorld(ofVec3f screenPt, bool considerHeadOrientation) {
-
-    if (baseCamera == NULL) {
-        return ofVec3f(0, 0, 0);
-    }
-
-    ofVec3f oculus2DPt = screenToOculus2D(screenPt, considerHeadOrientation);
-    ofRectangle viewport = getOculusViewport();
-    return baseCamera->screenToWorld(oculus2DPt, viewport);
-}
-
-//TODO head orientation not considered
-ofVec3f ofxOculusDK2::screenToOculus2D(ofVec3f screenPt, bool considerHeadOrientation) {
-
-    ofRectangle viewport = getOculusViewport();
-    //  viewport.x -= viewport.width  / 2;
-    //	viewport.y -= viewport.height / 2;
-    viewport.scaleFromCenter(oculusScreenSpaceScale);
-	return ofVec3f(ofMap(screenPt.x, 0, ofGetWidth(), viewport.getMinX(), viewport.getMaxX()),
-        ofMap(screenPt.y, 0, ofGetHeight(), viewport.getMinY(), viewport.getMaxY()),
-        screenPt.z);
-}
-
-//TODO: head position!
-ofVec3f ofxOculusDK2::mousePosition3D(float z, bool considerHeadOrientation) {
-    //	ofVec3f cursor3D = screenToWorld(cursor2D);
-    return screenToWorld(ofVec3f(ofGetMouseX(), ofGetMouseY(), z));
-}
-
-float ofxOculusDK2::distanceFromMouse(ofVec3f worldPoint) {
-    //map the current 2D position into oculus space
-    return distanceFromScreenPoint(worldPoint, ofVec3f(ofGetMouseX(), ofGetMouseY()));
-}
-
-float ofxOculusDK2::distanceFromScreenPoint(ofVec3f worldPoint, ofVec2f screenPoint) {
-    ofVec3f cursorRiftSpace = screenToOculus2D(screenPoint);
-    ofVec3f targetRiftSpace = worldToScreen(worldPoint);
-
-    float dist = ofDist(cursorRiftSpace.x, cursorRiftSpace.y,
-        targetRiftSpace.x, targetRiftSpace.y);
-    return dist;
-}
-
-
-void ofxOculusDK2::multBillboardMatrix() {
-    multBillboardMatrix(mousePosition3D());
-}
-
+//TODO: respond to Positional tracking!
 void ofxOculusDK2::multBillboardMatrix(ofVec3f objectPosition, ofVec3f updirection) {
 
     if (baseCamera == NULL) {
@@ -662,6 +597,7 @@ void ofxOculusDK2::multBillboardMatrix(ofVec3f objectPosition, ofVec3f updirecti
     // Perform the rotation.
     ofRotate(angle, axis.x, axis.y, axis.z);
 }
+
 ofVec2f ofxOculusDK2::gazePosition2D() {
     ofVec3f angles = getOrientationQuat().getEuler();
 	return ofVec2f(ofMap(angles.y, 90, -90, 0, getOculusViewport().width),
@@ -672,14 +608,6 @@ void ofxOculusDK2::draw() {
 	blitMirrorTexture();
 }
 
-
 void ofxOculusDK2::recenterPose(void) {
 	reset();
-}
-
-bool ofxOculusDK2::isHD() {
-    if (bSetup) {
-        return hmdDesc.Type == ovrHmd_DK2 || hmdDesc.Type == ovrHmd_DKHD;
-    }
-    return false;
 }

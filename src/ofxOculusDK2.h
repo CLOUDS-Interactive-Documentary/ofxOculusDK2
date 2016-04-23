@@ -304,11 +304,7 @@ public:
 				layer.EyeFov.Fov[eye]          = desc.DefaultEyeFov[eye];
 				
 			}
-
 		}
-
-
-		
 	}
 
 	~EyeFovLayer()
@@ -470,7 +466,7 @@ public:
 
     bool isSetup();
     void reset();
-    bool lockView;
+    //bool lockView;
 
     //draw background, before rendering eyes
     void beginBackground();
@@ -502,27 +498,15 @@ public:
     ofMatrix4x4 getOrientationMat();
     ofVec3f getTranslation();
 
-    //default 1 has more constrained mouse movement,
-    //while turning it up increases the reach of the mouse
-    float				oculusScreenSpaceScale;
-
     //projects a 3D point into 2D, optionally accounting for the head orientation
     ofVec3f worldToScreen(ofVec3f worldPosition);
-    ofVec3f screenToWorld(ofVec3f screenPt, bool considerHeadOrientation = false);
-    ofVec3f screenToOculus2D(ofVec3f screenPt, bool considerHeadOrientation = false);
 
     //returns a 3d position of the mouse projected in front of the camera, at point z
-    ofVec3f				mousePosition3D(float z = 0, bool considerHeadOrientation = false);
     ofVec2f				gazePosition2D();
 
-    //sets up the view so that things drawn in 2D are billboarded to the caemra,
-    //centered at the mouse
+    //Sets up the view so that things drawn in 2D are billboarded to the camera,
     //Good way to draw custom cursors. don't forget to push/pop matrix around the call
-    void				multBillboardMatrix();
     void				multBillboardMatrix(ofVec3f objectPosition, ofVec3f upDirection = ofVec3f(0, 1, 0));
-
-    float				distanceFromMouse(ofVec3f worldPoint);
-    float				distanceFromScreenPoint(ofVec3f worldPoint, ofVec2f screenPoint);
 
 	void setPlayerScale(float scale);
 	float getPlayerScale();
@@ -530,11 +514,8 @@ public:
     ofRectangle			getOverlayRectangle() { return ofRectangle(0, 0, hudLayer->getQuadResolution().x, hudLayer->getQuadResolution().y); }
 
 	ofRectangle			getOculusViewport(ovrEyeType eye = ovrEye_Left);
-    bool				isHD();
-    //allows you to disable moving the camera based on inner ocular distance
-
-	ofMatrix4x4			getProjectionMatrix(ovrEyeType eye);
-    ofMatrix4x4			getViewMatrix(ovrEyeType eye);
+	ofMatrix4x4			getProjectionMatrix(ovrEyeType eye = ovrEye_Left);
+    ofMatrix4x4			getViewMatrix(ovrEyeType eye = ovrEye_Left);
 
 private:
 
@@ -549,15 +530,16 @@ private:
 	void				blitMirrorTexture();
 
 	//how much to scale the player by with positional tracking
-	float currentPlayerScale;
+	float				currentPlayerScale;
 
     bool				bSetup;
     bool				insideFrame;
-    bool				bPositionTracking;
-    bool				bSRGB;
+//    bool				bPositionTracking;
+//    bool				bSRGB;
     bool				bUseBackground;
     bool				bUseOverlay;
 
+	//TODO: MA clean up
 	bool				isFading;
 	bool				isFadedDown;
 	float				fadeAmt;
@@ -565,8 +547,6 @@ private:
 
 	bool				bSetFrameData;
 	void				grabFrameData();
-
-	bool				skipFrame;
 
     ovrSession			session;
     ovrHmdDesc          hmdDesc;
