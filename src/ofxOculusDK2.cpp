@@ -198,6 +198,7 @@ void ofxOculusDK2::initialize()
 	mirrorTexture = nullptr;
 	initializeMirrorTexture( ofGetWidth(), ofGetHeight() );
 
+	bSetup = true;
 }
 
 bool ofxOculusDK2::createSession()
@@ -220,6 +221,7 @@ void ofxOculusDK2::uninitialize()
 	hudLayer.reset();
 	transitionLayer.reset();
 	backgroundLayer.reset();
+	bSetup = false;
 }
 
 void ofxOculusDK2::onWindowResizeEvent( ofResizeEventArgs& args )
@@ -248,7 +250,6 @@ bool ofxOculusDK2::setup() {
 
 	ofAddListener( ofEvents().windowResized, this, &ofxOculusDK2::onWindowResizeEvent );
 
-	bSetup = true;
     return true;
 }
 
