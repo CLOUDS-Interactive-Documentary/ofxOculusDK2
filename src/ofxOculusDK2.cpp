@@ -205,7 +205,8 @@ bool ofxOculusDK2::setup() {
 	eyeLayer = ofPtr<EyeFovLayer>( new EyeFovLayer( session, hmdDesc ) );
 	backgroundLayer = ofPtr<EyeFovLayer>( new EyeFovLayer( session, hmdDesc, true, false ) ); //monoscopic, no depth
 	transitionLayer =  ofPtr<EyeFovLayer>( new EyeFovLayer( session, hmdDesc, true, false ) ); // mponoscopic, no depth
-
+	hudLayer = ofPtr<QuadLayer>( new QuadLayer( session ) );
+ 
 	ovrMirrorTextureDesc desc;
     memset(&desc, 0, sizeof(desc));
     desc.Width = windowSize.w;
@@ -324,7 +325,7 @@ void ofxOculusDK2::setupEyeParams(ovrEyeType eye) {
 
 	eyeLayer->update( eye, eyeRenderPose[eye], sensorSampleTime );
 
-	eyeLayer->begin( eye );
+	eyeLayer->begin();
 
 	ofSetMatrixMode(OF_MATRIX_PROJECTION);
     ofLoadIdentityMatrix();
@@ -342,7 +343,7 @@ ofRectangle ofxOculusDK2::getOculusViewport(ovrEyeType eye) {
 void ofxOculusDK2::beginBackground() {
     bUseBackground = true;
     insideFrame = true;
-	backgroundLayer->begin( ovrEyeType(0) );
+	backgroundLayer->begin();
 }
 
 void ofxOculusDK2::endBackground() {
@@ -356,7 +357,7 @@ void ofxOculusDK2::setFade( float fade )
 	transitionLayer->setClearColor( ofFloatColor(fadeColor.r,fadeColor.g, fadeColor.b, fadeAmt ) );
 	
 	if( !isFadedDown && isFading ){
-		transitionLayer->begin( ovrEyeType(0) );
+		transitionLayer->begin();
 		transitionLayer->end();
 	}
 
@@ -369,6 +370,7 @@ void ofxOculusDK2::setFade( float fade )
 
 void ofxOculusDK2::beginOverlay(float overlayZ, float scale,  float width, float height){
 	
+	/*
 	bUseOverlay = true;
 	overlayZDistance = overlayZ;
 	
@@ -395,6 +397,15 @@ void ofxOculusDK2::beginOverlay(float overlayZ, float scale,  float width, float
 	
     ofPushView();
     ofPushMatrix();
+
+	*/
+	auto currentSize = hudLayer->getQuadSize();
+	if((int)currentSize.x != (int)width || (int)currentSize.y != (int)height || !hudLayer ){
+		
+
+
+	}
+
 }
 	
 

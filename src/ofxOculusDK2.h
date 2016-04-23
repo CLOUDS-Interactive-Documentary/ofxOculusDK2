@@ -235,7 +235,7 @@ public:
 
 	virtual ~LayerBase(){}
 	virtual void update( ovrEyeType eye, const ovrPosef &eyePose,  double sampleTime ) = 0 ;
-	virtual void begin( ovrEyeType eye ) = 0 ;
+	virtual void begin() = 0 ;
 	virtual void end() = 0;
 	virtual ovrLayerHeader& getHeader() = 0; 
 	virtual void setClearColor( const ofFloatColor & color ) = 0;
@@ -333,10 +333,10 @@ public:
 	void update( ovrEyeType eye, const ovrPosef &eyePose,  double sampleTime)override{
 		layer.EyeFov.SensorSampleTime = sampleTime;
 		layer.EyeFov.RenderPose[eye] = eyePose;
+		currentEye = isMonoscopic ? ovrEyeType(0) : eye;
 	}
 
-	void begin( ovrEyeType eye )override{
-		currentEye = isMonoscopic ? ovrEyeType(0) : eye;
+	void begin()override{
 		eyeTextures[currentEye]->SetAndClearRenderSurface( depthBuffers[currentEye] );
 	 }
 
@@ -367,7 +367,12 @@ public:
 
 	void setQuadSize( const ovrVector2f & size )
 	{
-		layer.Quad.QuadSize = size;
+		if( layer.Quad.QuadSize.x != size.x || layer.Quad.QuadSize.y != size.y || !bIsAllocated ){
+			layer.Quad.QuadSize = size;
+			quadTexture = std::shared_ptr<TextureBuffer>(new TextureBuffer(rSession, true, true, size, 1, NULL, 1));
+			layer.Quad.ColorTexture = quadTexture->TextureChain;
+			bIsAllocated = true;
+		}
 	}
 
 	ovrLayerHeader& getHeader()override { return layer.Quad.Header; }; 
@@ -377,19 +382,15 @@ public:
 		quadTexture->setClearColor(color);
 	}
 
-	QuadLayer(  ovrSession &session, const ovrHmdDesc &desc ) : currentEye(ovrEyeType(0))
+	ofVec2f getQuadSize(){
+		return ofVec2f( layer.Quad.QuadSize.x, layer.Quad.QuadSize.y );
+	}
+
+	QuadLayer(  ovrSession &session ) : currentEye(ovrEyeType(0)), bIsAllocated(false), rSession(session)
 	{
+		
 		layer.Quad.Header.Type  = ovrLayerType_Quad;
 		layer.Quad.Header.Flags = ovrLayerFlag_HighQuality;
-
-		ovrSizei idealTextureSize = ovr_GetFovTextureSize(session, ovrEyeType(0), desc.DefaultEyeFov[0], 1);
-		quadTexture = std::shared_ptr<TextureBuffer>(new TextureBuffer(session, true, true, idealTextureSize, 1, NULL, 1));
-
-		if (!quadTexture->TextureChain)
-		{
-			ofLogError() << "Failed to create texture chain" ;
-			return;
-		}
 
 		layer.Quad.Viewport.Pos.x = 0;
 		layer.Quad.Viewport.Pos.y = 0;
@@ -397,8 +398,8 @@ public:
 		layer.Quad.Viewport.Size.w = 1;
 		layer.Quad.Viewport.Size.h = 1;
 
-		layer.Quad.QuadSize.x = idealTextureSize.w;
-		layer.Quad.QuadSize.y = idealTextureSize.h;
+		layer.Quad.QuadSize.x = 0;
+		layer.Quad.QuadSize.y = 0;
 
 		layer.Quad.QuadPoseCenter.Position.x = 0;
 		layer.Quad.QuadPoseCenter.Position.y = 0;
@@ -409,7 +410,6 @@ public:
 		layer.Quad.QuadPoseCenter.Orientation.z = 0;
 		layer.Quad.QuadPoseCenter.Orientation.w = 1;
 
-		layer.Quad.ColorTexture = quadTexture->TextureChain;
 	}
 
 	~QuadLayer()
@@ -417,11 +417,10 @@ public:
 	}
 
 	void update( ovrEyeType eye, const ovrPosef &quadPoseCenter,  double sampleTime)override{
-		currentEye = eye;
 		layer.Quad.QuadPoseCenter = quadPoseCenter;
 	}
 
-	void begin( ovrEyeType eye )override{
+	void begin()override{
 		quadTexture->SetAndClearRenderSurface(nullptr);
 	 }
 
@@ -431,8 +430,12 @@ public:
 		quadTexture->Commit();
 	}
 
+	bool isAllocated(){ return bIsAllocated; }
+
 private:
 
+	ovrSession & rSession;
+	bool bIsAllocated;
 	ovrEyeType currentEye;
 	std::shared_ptr<TextureBuffer> quadTexture;
 
@@ -577,6 +580,7 @@ private:
 
 	//Layers
 	ofPtr<EyeFovLayer>	eyeLayer, backgroundLayer, transitionLayer;
+	ofPtr<QuadLayer>	hudLayer;
 
 	//MirrorTexture
 	ovrMirrorTexture	mirrorTexture;
