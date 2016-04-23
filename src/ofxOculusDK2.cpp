@@ -74,7 +74,8 @@ ovrSizei toOVRSizei(const int w, const int h) {
 }
 
 ofxOculusDK2::ofxOculusDK2() {
-    	
+    
+	bSetFrameData = false;
 	mirrorTexture = nullptr;
 	isVisible = true;
 	isFadedDown = false;
