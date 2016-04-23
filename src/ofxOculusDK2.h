@@ -531,7 +531,7 @@ public:
     float oculusScreenSpaceScale;
 
     //projects a 3D point into 2D, optionally accounting for the head orientation
-    ofVec3f worldToScreen(ofVec3f worldPosition, bool considerHeadOrientation = false);
+    ofVec3f worldToScreen(ofVec3f worldPosition);
     ofVec3f screenToWorld(ofVec3f screenPt, bool considerHeadOrientation = false);
     ofVec3f screenToOculus2D(ofVec3f screenPt, bool considerHeadOrientation = false);
 
@@ -548,6 +548,9 @@ public:
 
     float distanceFromMouse(ofVec3f worldPoint);
     float distanceFromScreenPoint(ofVec3f worldPoint, ofVec2f screenPoint);
+
+	void setPlayerScale(float scale);
+	float getPlayerScale();
 
 	
     ofRectangle getOverlayRectangle() {
@@ -571,6 +574,9 @@ private:
 
     bool bSRGB;
     bool bHqDistortion;
+
+	//how much to scale the player by with positional tracking
+	float currentPlayerScale;
 
     bool bUseBackground;
     bool bUseOverlay;
