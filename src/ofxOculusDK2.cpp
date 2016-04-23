@@ -110,14 +110,6 @@ ofxOculusDK2::~ofxOculusDK2() {
 
 		if (mirrorFBO) glDeleteFramebuffers(1, &mirrorFBO);
 		if (mirrorTexture) ovr_DestroyMirrorTexture(session, mirrorTexture);
-		
-		delete eyeLayer;
-
-		if(backgroundLayer)
-			delete backgroundLayer;
-
-		if(transitionLayer != nullptr)
-			delete transitionLayer;
 
 		//Platform.ReleaseDevice();
 		ovr_Destroy(session);
@@ -210,9 +202,9 @@ bool ofxOculusDK2::setup() {
 		eyeViewports[eye] = toOf(OVR::Recti(ovr_GetFovTextureSize(session, ovrEyeType(eye), hmdDesc.DefaultEyeFov[eye], 1)));
 	}
 
-	eyeLayer = new EyeFovLayer( session, hmdDesc );
-	backgroundLayer = new EyeFovLayer( session, hmdDesc, true, false ); //monoscopic, no depth
-	transitionLayer = new EyeFovLayer( session, hmdDesc, true, false ); // mponoscopic, no depth
+	eyeLayer = ofPtr<EyeFovLayer>( new EyeFovLayer( session, hmdDesc ) );
+	backgroundLayer = ofPtr<EyeFovLayer>( new EyeFovLayer( session, hmdDesc, true, false ) ); //monoscopic, no depth
+	transitionLayer =  ofPtr<EyeFovLayer>( new EyeFovLayer( session, hmdDesc, true, false ) ); // mponoscopic, no depth
 
 	ovrMirrorTextureDesc desc;
     memset(&desc, 0, sizeof(desc));
@@ -743,8 +735,8 @@ void ofxOculusDK2::draw() {
         // Blit mirror texture to back buffer
         glBindFramebuffer(GL_READ_FRAMEBUFFER, mirrorFBO);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-		GLint w = ofGetWidth();
-		GLint h = ofGetHeight();
+		GLint w = windowSize.w;
+		GLint h = windowSize.h;
         glBlitFramebuffer(0, h, w, 0,
                           0, 0, w, h,
                           GL_COLOR_BUFFER_BIT, GL_NEAREST);

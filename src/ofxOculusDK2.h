@@ -187,7 +187,7 @@ struct TextureBuffer : public TextureBufferBase
 		clearColor = color;
 	}
 
-    void SetAndClearRenderSurface(DepthBuffer* dbuffer)
+    void SetAndClearRenderSurface( const std::shared_ptr<DepthBuffer>& dbuffer)
     {
         GLuint curTexId;
         if (TextureChain)
@@ -268,10 +268,10 @@ public:
 				idealTextureSize.h = ideal.h;
 			}
 
-			eyeTextures[0] = new TextureBuffer(session, true, true, idealTextureSize, 1, NULL, 1);
+			eyeTextures[0] = std::shared_ptr<TextureBuffer>(  new TextureBuffer(session, true, true, idealTextureSize, 1, NULL, 1) );
 
 			if(usesdepth)
-				depthBuffers[0]   = new DepthBuffer(eyeTextures[0]->GetSize(), 0);
+				depthBuffers[0]   = std::shared_ptr<DepthBuffer>(  new DepthBuffer(eyeTextures[0]->GetSize(), 0) );
 			else
 				depthBuffers[0] = nullptr;
 			
@@ -292,10 +292,10 @@ public:
 
 				idealTextureSize = ovr_GetFovTextureSize(session, ovrEyeType(eye), desc.DefaultEyeFov[eye], 1);
 
-				eyeTextures[eye] = new TextureBuffer(session, true, true, idealTextureSize, 1, NULL, 1);
+				eyeTextures[eye] = std::shared_ptr<TextureBuffer>( new TextureBuffer(session, true, true, idealTextureSize, 1, NULL, 1) );
 
 				if(usesdepth)
-					depthBuffers[eye]   = new DepthBuffer(eyeTextures[eye]->GetSize(), 0);
+					depthBuffers[eye]   = std::shared_ptr<DepthBuffer>( new DepthBuffer(eyeTextures[eye]->GetSize(), 0) );
 				else
 					depthBuffers[eye] = nullptr;
 
@@ -319,12 +319,6 @@ public:
 
 	~EyeFovLayer()
 	{
-		for( int eye = 0; eye < 2; ++eye ){
-			if(  eyeTextures[eye] )
-				delete eyeTextures[eye];
-			if(  depthBuffers[eye] )
-				delete depthBuffers[eye];
-		}
 	}
 
 	ovrLayerHeader& getHeader()override { return layer.EyeFov.Header; }; 
@@ -355,8 +349,8 @@ public:
 private:
 
 	ovrEyeType currentEye;
-	TextureBuffer * eyeTextures[2];
-	DepthBuffer * depthBuffers[2];
+	std::shared_ptr<TextureBuffer> eyeTextures[2];
+	std::shared_ptr<DepthBuffer> depthBuffers[2];
 	bool isMonoscopic;
 	friend class ofxOculusDK2;
 };
@@ -389,7 +383,7 @@ public:
 		layer.Quad.Header.Flags = ovrLayerFlag_HighQuality;
 
 		ovrSizei idealTextureSize = ovr_GetFovTextureSize(session, ovrEyeType(0), desc.DefaultEyeFov[0], 1);
-		quadTexture = new TextureBuffer(session, true, true, idealTextureSize, 1, NULL, 1);
+		quadTexture = std::shared_ptr<TextureBuffer>(new TextureBuffer(session, true, true, idealTextureSize, 1, NULL, 1));
 
 		if (!quadTexture->TextureChain)
 		{
@@ -420,7 +414,6 @@ public:
 
 	~QuadLayer()
 	{
-		delete quadTexture;
 	}
 
 	void update( ovrEyeType eye, const ovrPosef &quadPoseCenter,  double sampleTime)override{
@@ -441,7 +434,7 @@ public:
 private:
 
 	ovrEyeType currentEye;
-	TextureBuffer * quadTexture;
+	std::shared_ptr<TextureBuffer> quadTexture;
 
 	friend class ofxOculusDK2;
 
@@ -583,8 +576,7 @@ private:
     ovrVector3f         hmdToEyeOffset[ovrEye_Count];
 
 	//Layers
-	EyeFovLayer*		eyeLayer;
-	EyeFovLayer*		backgroundLayer, *transitionLayer;
+	ofPtr<EyeFovLayer>	eyeLayer, backgroundLayer, transitionLayer;
 
 	//MirrorTexture
 	ovrMirrorTexture	mirrorTexture;
