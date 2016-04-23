@@ -359,7 +359,7 @@ public:
 
 	void setHeadLocked()
 	{
-		layer.Quad.Header.Flags = ovrLayerFlag_HighQuality | ovrLayerFlag_HeadLocked;
+		layer.Quad.Header.Flags |= ovrLayerFlag_HeadLocked;
 	}
 
 	void setQuadSize( const ofVec2f & size )
@@ -399,7 +399,7 @@ public:
 	QuadLayer( ovrSession s ) : currentEye(ovrEyeType::ovrEye_Left), bIsAllocated(false), session(s)
 	{
 		layer.Quad.Header.Type  = ovrLayerType_Quad;
-		layer.Quad.Header.Flags = ovrLayerFlag_HighQuality;
+		layer.Quad.Header.Flags = ovrLayerFlag_HighQuality | ovrLayerFlag_TextureOriginAtBottomLeft;
 
 		layer.Quad.Viewport.Pos.x = 0;
 		layer.Quad.Viewport.Pos.y = 0;
