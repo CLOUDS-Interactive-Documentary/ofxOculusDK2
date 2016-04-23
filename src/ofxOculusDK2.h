@@ -234,7 +234,8 @@ class LayerBase {
 public:
 
 	virtual ~LayerBase(){}
-	virtual void update( ovrEyeType eye, const ovrPosef &eyePose,  double sampleTime ) = 0 ;
+	virtual void update( double sampleTime ) = 0 ;
+	virtual void setPose( const ovrPosef &pose, ovrEyeType eye = ovrEyeType::ovrEye_Left ) = 0;
 	virtual void begin() = 0 ;
 	virtual void end() = 0;
 	virtual ovrLayerHeader& getHeader() = 0; 
@@ -330,10 +331,13 @@ public:
 			eyeTextures[1]->setClearColor(color);
 	}
 
-	void update( ovrEyeType eye, const ovrPosef &eyePose,  double sampleTime)override{
+	void setPose(  const ovrPosef &pose, ovrEyeType eye )override {
+		layer.EyeFov.RenderPose[eye] = pose;
+		currentEye = isMonoscopic ? ovrEyeType::ovrEye_Left : eye;
+	}
+
+	void update( double sampleTime)override{
 		layer.EyeFov.SensorSampleTime = sampleTime;
-		layer.EyeFov.RenderPose[eye] = eyePose;
-		currentEye = isMonoscopic ? ovrEyeType(0) : eye;
 	}
 
 	void begin()override{
@@ -365,30 +369,43 @@ public:
 		layer.Quad.Header.Flags = ovrLayerFlag_HighQuality | ovrLayerFlag_HeadLocked;
 	}
 
-	void setQuadSize( const ovrVector2f & size )
+	void setQuadSize( const ofVec2f & size )
 	{
-		if( layer.Quad.QuadSize.x != size.x || layer.Quad.QuadSize.y != size.y || !bIsAllocated ){
-			layer.Quad.QuadSize = size;
-			quadTexture = std::shared_ptr<TextureBuffer>(new TextureBuffer(rSession, true, true, size, 1, NULL, 1));
-			layer.Quad.ColorTexture = quadTexture->TextureChain;
-			bIsAllocated = true;
-		}
+			ovrVector2f s;
+			s.x = size.x;
+			s.y = size.y;
+			//TODO check this
+			layer.Quad.QuadSize = s;
 	}
 
 	ovrLayerHeader& getHeader()override { return layer.Quad.Header; }; 
 
 	void setClearColor( const ofFloatColor & color )override
 	{
-		quadTexture->setClearColor(color);
+		if( quadTexture )quadTexture->setClearColor(color);
 	}
 
-	ofVec2f getQuadSize(){
+	ofVec2f getWorldQuadSize(){
 		return ofVec2f( layer.Quad.QuadSize.x, layer.Quad.QuadSize.y );
 	}
 
-	QuadLayer(  ovrSession &session ) : currentEye(ovrEyeType(0)), bIsAllocated(false), rSession(session)
+	ofVec2f getQuadResolution(){
+		return ofVec2f( layer.Quad.Viewport.Size.w, layer.Quad.Viewport.Size.h );
+	}
+
+	void allocate( int allocation_width, int allocation_height, int mip_levels = 1 )
 	{
-		
+		if( layer.Quad.Viewport.Size.w != allocation_width || layer.Quad.Viewport.Size.h != allocation_height || !bIsAllocated ){
+			layer.Quad.Viewport.Size.w = allocation_width;
+			layer.Quad.Viewport.Size.h = allocation_height;
+			quadTexture = std::shared_ptr<TextureBuffer>(new TextureBuffer(rSession, true, true, OVR::Sizei(allocation_width, allocation_height), mip_levels, NULL, 1));
+			layer.Quad.ColorTexture = quadTexture->TextureChain;
+			bIsAllocated = true;
+		}
+	}
+
+	QuadLayer( ovrSession &session ) : currentEye(ovrEyeType::ovrEye_Left), bIsAllocated(false), rSession(session)
+	{
 		layer.Quad.Header.Type  = ovrLayerType_Quad;
 		layer.Quad.Header.Flags = ovrLayerFlag_HighQuality;
 
@@ -409,18 +426,20 @@ public:
 		layer.Quad.QuadPoseCenter.Orientation.y = 0;
 		layer.Quad.QuadPoseCenter.Orientation.z = 0;
 		layer.Quad.QuadPoseCenter.Orientation.w = 1;
-
 	}
 
 	~QuadLayer()
 	{
 	}
 
-	void update( ovrEyeType eye, const ovrPosef &quadPoseCenter,  double sampleTime)override{
-		layer.Quad.QuadPoseCenter = quadPoseCenter;
+	void setPose(  const ovrPosef &pose, ovrEyeType eye = ovrEyeType::ovrEye_Left )override {
+		layer.Quad.QuadPoseCenter = pose;
 	}
 
+	void update( double sampleTime )override{}
+
 	void begin()override{
+		if( !bIsAllocated )return;
 		quadTexture->SetAndClearRenderSurface(nullptr);
 	 }
 
@@ -470,7 +489,7 @@ public:
 	void setFadeColor( const ofFloatColor & color ){ fadeColor = color; }
 
     //draw overlay, before rendering eyes
-    void beginOverlay(float overlayZDistance = -150, float scale = 1.0, float width = 256, float height = 256);
+    void beginOverlay(float world_z , float scale, int pixel_size_x, int pixel_size_y );
     void endOverlay();
 
     void beginLeftEye();
@@ -532,14 +551,12 @@ public:
 
 	
     ofRectangle getOverlayRectangle() {
-        return ofRectangle(0, 0,
-            overlayTarget->getWidth(),
-            overlayTarget->getHeight());
+		return ofRectangle(0, 0, hudLayer->getQuadResolution().x, hudLayer->getQuadResolution().y);
     }
 
-    ofFbo& getOverlayTarget() {
-        return *overlayTarget;
-    }
+  //  ofFbo& getOverlayTarget() {
+   //     return *overlayTarget;
+  //  }
 	
 	ofRectangle getOculusViewport(ovrEyeType eye = ovrEye_Left);
     bool isHD();
