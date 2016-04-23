@@ -206,6 +206,8 @@ bool ofxOculusDK2::setup() {
 	eyeLayer = ofPtr<EyeFovLayer>( new EyeFovLayer( session, hmdDesc ) );
 	backgroundLayer = ofPtr<EyeFovLayer>( new EyeFovLayer( session, hmdDesc, true, false ) ); //monoscopic, no depth
 	transitionLayer =  ofPtr<EyeFovLayer>( new EyeFovLayer( session, hmdDesc, true, false ) ); // mponoscopic, no depth
+	hudLayer = ofPtr<QuadLayer>( new QuadLayer( session ) );
+	hudLayer->setHeadLocked();
 
 	ovrMirrorTextureDesc desc;
     memset(&desc, 0, sizeof(desc));
@@ -330,12 +332,12 @@ ofMatrix4x4 ofxOculusDK2::getViewMatrix(ovrEyeType eye) {
 
 void ofxOculusDK2::setupEyeParams(ovrEyeType eye) {
 
-	transitionLayer->update(eye, eyeRenderPose[eye], sensorSampleTime);
-	backgroundLayer->update( eye, eyeRenderPose[eye], sensorSampleTime );
+	transitionLayer->setPose( eyeRenderPose[eye], eye );
+	backgroundLayer->setPose( eyeRenderPose[eye], eye );
 
-	eyeLayer->update( eye, eyeRenderPose[eye], sensorSampleTime );
+	eyeLayer->setPose( eyeRenderPose[eye], eye );
 
-	eyeLayer->begin( eye );
+	eyeLayer->begin();
 
 	ofSetMatrixMode(OF_MATRIX_PROJECTION);
     ofLoadIdentityMatrix();
@@ -353,7 +355,7 @@ ofRectangle ofxOculusDK2::getOculusViewport(ovrEyeType eye) {
 void ofxOculusDK2::beginBackground() {
     bUseBackground = true;
     insideFrame = true;
-	backgroundLayer->begin( ovrEyeType(0) );
+	backgroundLayer->begin();
 }
 
 void ofxOculusDK2::endBackground() {
@@ -367,7 +369,7 @@ void ofxOculusDK2::setFade( float fade )
 	transitionLayer->setClearColor( ofFloatColor(fadeColor.r,fadeColor.g, fadeColor.b, fadeAmt ) );
 	
 	if( !isFadedDown && isFading ){
-		transitionLayer->begin( ovrEyeType(0) );
+		transitionLayer->begin();
 		transitionLayer->end();
 	}
 
@@ -378,8 +380,15 @@ void ofxOculusDK2::setFade( float fade )
 }
 
 
-void ofxOculusDK2::beginOverlay(float overlayZ, float scale,  float width, float height){
+void ofxOculusDK2::beginOverlay(float world_z , float scale,  int pixel_size_x, int pixel_size_y){
 	
+	auto res = hudLayer->getQuadResolution();
+	hudLayer->allocate( pixel_size_x, pixel_size_y, 1 );
+
+	float world_width = (float)pixel_size_x / (float)pixel_size_y;
+	float world_height =  1.f; 
+
+	/*
 	bUseOverlay = true;
 	overlayZDistance = overlayZ;
 	
@@ -406,13 +415,51 @@ void ofxOculusDK2::beginOverlay(float overlayZ, float scale,  float width, float
 	
     ofPushView();
     ofPushMatrix();
+
+	*/
+
+	auto z = -abs(world_z);
+
+	ovrPosef pose;
+
+	pose.Position.x = 0.0f;
+	pose.Position.y = 0.0f;
+	pose.Position.z = z;
+
+	pose.Orientation.w = 1.0f;
+	pose.Orientation.x = 0.0f;
+	pose.Orientation.y = 0.0f;
+	pose.Orientation.z = 0.0f;
+
+	hudLayer->setPose( pose );
+
+	bUseOverlay = true;
+	overlayZDistance = z;
+	auto size = scale * ofVec2f( world_width, world_height );
+	hudLayer->setQuadSize( size );
+	hudLayer->begin();
+
+	ofPushView();
+    ofPushMatrix();
+	
+	ofSetupScreenOrtho(res.x,res.y);
+	glViewport( 0, 0, res.x, res.y );
+
+    glPushAttrib(GL_ALL_ATTRIB_BITS);
+    glDisable(GL_LIGHTING);
+    ofDisableDepthTest();
+    ofEnableAlphaBlending();
+
 }
 	
 
 void ofxOculusDK2::endOverlay() {
+
+	glPopAttrib();
+    ofPopStyle();
     ofPopMatrix();
     ofPopView();
-	overlayTarget->end();
+	hudLayer->end();
 }
 
 void ofxOculusDK2::grabFrameData()
@@ -427,6 +474,11 @@ void ofxOculusDK2::grabFrameData()
 	hmdToEyeOffset[1] =	eyeRenderDesc[1].HmdToEyeOffset;
 
 	ovr_GetEyePoses(session, frameIndex, ovrTrue, hmdToEyeOffset, eyeRenderPose, &sensorSampleTime);
+
+	eyeLayer->update( sensorSampleTime );
+	backgroundLayer->update( sensorSampleTime );
+	transitionLayer->update( sensorSampleTime );
+
 	bSetFrameData = true;
 }
 
@@ -440,8 +492,6 @@ void ofxOculusDK2::beginLeftEye() {
 	if(!bSetFrameData){
 		grabFrameData();
 	}
-
-
 
 	/* 
 
@@ -471,7 +521,6 @@ void ofxOculusDK2::beginLeftEye() {
 
     insideFrame = true;
 
-
     ofPushView();
     ofPushMatrix();
 
@@ -482,7 +531,7 @@ void ofxOculusDK2::endLeftEye() {
     if (!bSetup) return;
 
     if (bUseOverlay) {
-        renderOverlay();
+      //  renderOverlay();
     }
 
 	eyeLayer->end();
@@ -507,7 +556,7 @@ void ofxOculusDK2::endRightEye() {
     if (!bSetup) return;
 
     if (bUseOverlay) {
-        renderOverlay();
+       // renderOverlay();
     }
 
 	eyeLayer->end();
@@ -523,13 +572,21 @@ void ofxOculusDK2::endRightEye() {
 	viewScaleDesc.HmdToEyeOffset[1] = hmdToEyeOffset[1];
 
 	std::vector<ovrLayerHeader*> layers;
+
 	if( bUseBackground ){
 		layers.push_back(&backgroundLayer->getHeader());
 	}
+
 	layers.push_back( &eyeLayer->getHeader() );
+
+	if( bUseOverlay ){
+		layers.push_back(&hudLayer->getHeader());
+	}
+
 	if( isFading || isFadedDown ){
 		layers.push_back( &transitionLayer->getHeader() );
 	}
+
 	ovrResult result = ovr_SubmitFrame(session, frameIndex, &viewScaleDesc, layers.data(), layers.size() );
 	bSetFrameData = false;
 
