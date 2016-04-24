@@ -73,27 +73,407 @@ ovrSizei toOVRSizei(const int w, const int h) {
     return s;
 }
 
+////////////////////////////////////////
+///DEPTH BUFFER
+////////////////////////////////////////
+
+DepthBuffer::DepthBuffer(OVR::Sizei size, int sampleCount):TextureBufferBase(0)
+{
+    assert(sampleCount <= 1); // The code doesn't currently handle MSAA textures.
+
+    glGenTextures(1, &texId);
+    glBindTexture(GL_TEXTURE_2D, texId);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    GLenum internalFormat = GL_DEPTH_COMPONENT32F;
+    GLenum type = GL_FLOAT;
+    glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, size.w, size.h, 0, GL_DEPTH_COMPONENT, type, NULL);
+}
+
+DepthBuffer::~DepthBuffer()
+{
+   glDeleteTextures(1, &texId);
+   texId = 0;
+}
+
+////////////////////////////////////////
+///TEXTURE BUFFER
+////////////////////////////////////////
+
+TextureBuffer::TextureBuffer(ovrSession session, bool rendertarget, bool displayableOnHmd, OVR::Sizei size, int mipLevels, unsigned char * data, int sampleCount) :
+    TextureBufferBase(0),
+	Session(session),
+    TextureChain(nullptr),
+    fboId(0),
+    texSize(0, 0),
+	clearColor(0.,0.,0.,0.)
+{
+    assert(sampleCount <= 1); // The code doesn't currently handle MSAA textures.
+
+    texSize = size;
+
+    if (displayableOnHmd)
+    {
+        // This texture isn't necessarily going to be a rendertarget, but it usually is.
+        assert(session); // No HMD? A little odd.
+        assert(sampleCount == 1); // ovr_CreateSwapTextureSetD3D11 doesn't support MSAA.
+
+        ovrTextureSwapChainDesc desc = {};
+        desc.Type = ovrTexture_2D;
+        desc.ArraySize = 1;
+        desc.Width = size.w;
+        desc.Height = size.h;
+        desc.MipLevels = 1; 
+        desc.Format = OVR_FORMAT_R8G8B8A8_UNORM_SRGB;
+        //desc.Format = OVR_FORMAT_B8G8R8A8_UNORM;
+		desc.SampleCount = 1;
+        desc.StaticImage = ovrFalse;
+
+        ovrResult result = ovr_CreateTextureSwapChainGL(Session, &desc, &TextureChain);
+
+        int length = 0;
+        ovr_GetTextureSwapChainLength(session, TextureChain, &length);
+
+        if(OVR_SUCCESS(result))
+        {
+            for (int i = 0; i < length; ++i)
+            {
+                GLuint chainTexId;
+                ovr_GetTextureSwapChainBufferGL(Session, TextureChain, i, &chainTexId);
+                glBindTexture(GL_TEXTURE_2D, chainTexId);
+
+                if (rendertarget)
+                {
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+					float black_border[] = { 0.0f, 0.0f, 0.0f, 1.0f };
+					glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, black_border);
+                }
+                else
+                {
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+                }
+            }
+        }
+    }
+    else
+    {
+        glGenTextures(1, &texId);
+        glBindTexture(GL_TEXTURE_2D, texId);
+
+        if (rendertarget)
+        {
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        }
+        else
+        {
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        }
+
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8_ALPHA8, texSize.w, texSize.h, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+    }
+
+    if (mipLevels > 1)
+    {
+        glGenerateMipmap(GL_TEXTURE_2D);
+    }
+
+    glGenFramebuffers(1, &fboId);
+}
+
+TextureBuffer::~TextureBuffer()
+{
+    if (TextureChain)
+    {
+        ovr_DestroyTextureSwapChain(Session, TextureChain);
+        TextureChain = nullptr;
+    }
+    
+	glDeleteTextures(1, &texId);
+        
+    glDeleteFramebuffers(1, &fboId);
+    fboId = 0;
+}
+
+OVR::Sizei TextureBuffer::GetSize() const
+{
+    return texSize;
+}
+
+void TextureBuffer::setClearColor( const ofFloatColor & color ){
+	clearColor = color;
+}
+
+void TextureBuffer::SetAndClearRenderSurface( const std::shared_ptr<DepthBuffer>& dbuffer)
+{
+    GLuint curTexId;
+    if (TextureChain)
+    {
+        int curIndex;
+        ovr_GetTextureSwapChainCurrentIndex(Session, TextureChain, &curIndex);
+        ovr_GetTextureSwapChainBufferGL(Session, TextureChain, curIndex, &curTexId);
+    }
+    else
+    {
+        curTexId = texId;
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, fboId);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, curTexId, 0);
+
+	if(dbuffer)
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, dbuffer->texId, 0);
+
+    glViewport(0, 0, texSize.w, texSize.h);
+	glClearColor( clearColor.r, clearColor.g, clearColor.b, clearColor.a );
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    //glEnable(GL_FRAMEBUFFER_SRGB);
+}
+
+void TextureBuffer::UnsetRenderSurface()
+{
+    glBindFramebuffer(GL_FRAMEBUFFER, fboId);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
+}
+
+void TextureBuffer::Commit()
+{
+    if (TextureChain)
+    {
+        ovr_CommitTextureSwapChain(Session, TextureChain);
+    }
+}
+
+////////////////////////////////////////
+///LAYERS - EYEFOV
+////////////////////////////////////////
+
+
+EyeFovLayer::EyeFovLayer(  ovrSession &session, const ovrHmdDesc &desc, bool monoscopic, bool usesdepth  ) : currentEye( ovrEyeType(0) ), isMonoscopic(monoscopic)
+{
+	layer.EyeFov.Header.Type  = ovrLayerType_EyeFov;
+	layer.EyeFov.Header.Flags = ovrLayerFlag_HighQuality;
+
+	ovrSizei idealTextureSize;
+	idealTextureSize.w = 0;
+	idealTextureSize.h = 0;
+
+	if(monoscopic){
+
+		for( int eye = 0; eye < 2; ++eye ){
+			auto ideal = ovr_GetFovTextureSize(session, ovrEyeType(eye), desc.DefaultEyeFov[eye], 1);
+			idealTextureSize.w = ideal.w;
+			idealTextureSize.h = ideal.h;
+		}
+
+		eyeTextures[0] = std::shared_ptr<TextureBuffer>(  new TextureBuffer(session, true, true, idealTextureSize, 1, NULL, 1) );
+
+		if(usesdepth)
+			depthBuffers[0]   = std::shared_ptr<DepthBuffer>(  new DepthBuffer(eyeTextures[0]->GetSize(), 0) );
+		else
+			depthBuffers[0] = nullptr;
+			
+		eyeTextures[1] = nullptr;
+		depthBuffers[1] = nullptr;
+				
+		layer.EyeFov.Viewport[0]     = OVR::Recti(eyeTextures[0]->GetSize());
+		layer.EyeFov.Fov[0]          = desc.DefaultEyeFov[0];
+		layer.EyeFov.ColorTexture[0] = eyeTextures[0]->TextureChain;
+
+		layer.EyeFov.Viewport[1]     = OVR::Recti(eyeTextures[0]->GetSize());
+		layer.EyeFov.Fov[1]          = desc.DefaultEyeFov[1];
+		layer.EyeFov.ColorTexture[1] = eyeTextures[0]->TextureChain;
+
+	}else{
+	
+		for( int eye = 0; eye < 2; ++eye ){
+
+			idealTextureSize = ovr_GetFovTextureSize(session, ovrEyeType(eye), desc.DefaultEyeFov[eye], 1);
+
+			eyeTextures[eye] = std::shared_ptr<TextureBuffer>( new TextureBuffer(session, true, true, idealTextureSize, 1, NULL, 1) );
+
+			if(usesdepth)
+				depthBuffers[eye]   = std::shared_ptr<DepthBuffer>( new DepthBuffer(eyeTextures[eye]->GetSize(), 0) );
+			else
+				depthBuffers[eye] = nullptr;
+
+			layer.EyeFov.ColorTexture[eye] = eyeTextures[eye]->TextureChain;
+
+			if (!eyeTextures[eye]->TextureChain)
+				{
+				ofLogError() << "Failed to create texture chain for eye : " << eye;
+				}
+
+			layer.EyeFov.Viewport[eye]     = OVR::Recti(eyeTextures[eye]->GetSize());
+			layer.EyeFov.Fov[eye]          = desc.DefaultEyeFov[eye];
+				
+		}
+	}
+}
+
+EyeFovLayer::~EyeFovLayer()
+{
+	if(eyeTextures[0])eyeTextures[0].reset();
+	if(eyeTextures[1])eyeTextures[1].reset();
+	if(depthBuffers[0])depthBuffers[0].reset();
+	if(depthBuffers[1])depthBuffers[1].reset();
+}
+
+ovrLayerHeader& EyeFovLayer::getHeader() { return layer.EyeFov.Header; }; 
+
+void EyeFovLayer::setClearColor( const ofFloatColor & color )
+{
+	eyeTextures[0]->setClearColor(color);
+	if(!isMonoscopic)
+		eyeTextures[1]->setClearColor(color);
+}
+
+void EyeFovLayer::setPose(  const ovrPosef &pose, ovrEyeType eye )
+{
+	layer.EyeFov.RenderPose[eye] = pose;
+	currentEye = isMonoscopic ? ovrEyeType::ovrEye_Left : eye;
+}
+
+void EyeFovLayer::update( double sampleTime)
+{
+	layer.EyeFov.SensorSampleTime = sampleTime;
+}
+
+void EyeFovLayer::begin()
+{
+	eyeTextures[currentEye]->SetAndClearRenderSurface( depthBuffers[currentEye] );
+}
+
+void EyeFovLayer::end()
+{
+	eyeTextures[currentEye]->UnsetRenderSurface();
+	eyeTextures[currentEye]->Commit();
+}
+
+
+////////////////////////////////////////
+///LAYERS - QUAD
+////////////////////////////////////////
+
+QuadLayer::QuadLayer( ovrSession s ) : currentEye(ovrEyeType::ovrEye_Left), bIsAllocated(false), session(s)
+{
+	layer.Quad.Header.Type  = ovrLayerType_Quad;
+	layer.Quad.Header.Flags = ovrLayerFlag_HighQuality | ovrLayerFlag_TextureOriginAtBottomLeft;
+
+	layer.Quad.Viewport.Pos.x = 0;
+	layer.Quad.Viewport.Pos.y = 0;
+
+	layer.Quad.Viewport.Size.w = 1;
+	layer.Quad.Viewport.Size.h = 1;
+
+	layer.Quad.QuadSize.x = 0;
+	layer.Quad.QuadSize.y = 0;
+
+	layer.Quad.QuadPoseCenter.Position.x = 0;
+	layer.Quad.QuadPoseCenter.Position.y = 0;
+	layer.Quad.QuadPoseCenter.Position.z = 0;
+
+	layer.Quad.QuadPoseCenter.Orientation.x = 0;
+	layer.Quad.QuadPoseCenter.Orientation.y = 0;
+	layer.Quad.QuadPoseCenter.Orientation.z = 0;
+	layer.Quad.QuadPoseCenter.Orientation.w = 1;
+}
+
+QuadLayer::~QuadLayer()
+{
+	quadTexture.reset();
+}
+
+void QuadLayer::setHeadLocked()
+{
+	layer.Quad.Header.Flags |= ovrLayerFlag_HeadLocked;
+}
+
+void QuadLayer::setQuadSize( const ofVec2f & size )
+{
+	ovrVector2f s;
+	s.x = size.x;
+	s.y = size.y;
+	layer.Quad.QuadSize = s;
+}
+
+void QuadLayer::setClearColor( const ofFloatColor & color )
+{
+	if( quadTexture )quadTexture->setClearColor(color);
+}
+
+ofVec2f QuadLayer::getWorldQuadSize(){
+	return ofVec2f( layer.Quad.QuadSize.x, layer.Quad.QuadSize.y );
+}
+
+ofVec2f QuadLayer::getQuadResolution(){
+	return ofVec2f( layer.Quad.Viewport.Size.w, layer.Quad.Viewport.Size.h );
+}
+
+void QuadLayer::allocate( int allocation_width, int allocation_height, int mip_levels )
+{
+	if( layer.Quad.Viewport.Size.w != allocation_width || layer.Quad.Viewport.Size.h != allocation_height || !bIsAllocated ){
+		layer.Quad.Viewport.Size.w = allocation_width;
+		layer.Quad.Viewport.Size.h = allocation_height;
+		quadTexture = std::shared_ptr<TextureBuffer>(new TextureBuffer(session, true, true, OVR::Sizei(allocation_width, allocation_height), mip_levels, NULL, 1));
+		layer.Quad.ColorTexture = quadTexture->TextureChain;
+		bIsAllocated = true;
+	}
+}
+
+void QuadLayer::setPose(  const ovrPosef &pose, ovrEyeType eye  ) {
+	layer.Quad.QuadPoseCenter = pose;
+}
+
+void QuadLayer::begin()
+{
+	if( !bIsAllocated )return;
+	quadTexture->SetAndClearRenderSurface(nullptr);
+}
+
+void QuadLayer::end()
+{
+	quadTexture->UnsetRenderSurface();
+	quadTexture->Commit();
+}
+
+
+////////////////////////////////////////
+///OCULUS SDK
+////////////////////////////////////////
+
 ofxOculusDK2::ofxOculusDK2() {
     
 	bSetFrameData = false;
 	mirrorTexture = nullptr;
 	isVisible = true;
-	isFadedDown = false;
 	baseCamera = nullptr;
 
 	currentPlayerScale = 1.0;
 
     bSetup = false;
     insideFrame = false;
-	isFading = false;
 	fadeColor = ofFloatColor(0.,0.,0.,1.);
 	fadeAmt = 0;
 
-//    bPositionTracking = true;
-//    bSRGB = true;
-
     bUseBackground = false;
     bUseOverlay = false;
+	bDisplayConnected = false;
+	bRenderError = false;
 
     session = nullptr;
     frameIndex = 0;;
@@ -169,6 +549,7 @@ void ofxOculusDK2::destroyMirrorTexture()
 {
 	if (mirrorFBO) glDeleteFramebuffers(1, &mirrorFBO);
 	if (mirrorTexture) ovr_DestroyMirrorTexture(session, mirrorTexture);
+	mirrorTexture = nullptr;
 }
 
 
@@ -185,15 +566,15 @@ void ofxOculusDK2::initialize()
 		eyeViewports[eye] = toOf(OVR::Recti(ovr_GetFovTextureSize(session, ovrEyeType(eye), hmdDesc.DefaultEyeFov[eye], 1)));
 	}
 
-	eyeLayer = ofPtr<EyeFovLayer>( new EyeFovLayer( session, hmdDesc ) );
-	backgroundLayer = ofPtr<EyeFovLayer>( new EyeFovLayer( session, hmdDesc, true, false ) ); //monoscopic, no depth
-	transitionLayer =  ofPtr<EyeFovLayer>( new EyeFovLayer( session, hmdDesc, true, false ) ); // mponoscopic, no depth
-	hudLayer = ofPtr<QuadLayer>( new QuadLayer( session ) );
+	eyeLayer = std::unique_ptr<EyeFovLayer>( new EyeFovLayer( session, hmdDesc ) );
+	backgroundLayer = std::unique_ptr<EyeFovLayer>( new EyeFovLayer( session, hmdDesc, true, false ) ); //monoscopic, no depth
+	transitionLayer =  std::unique_ptr<EyeFovLayer>( new EyeFovLayer( session, hmdDesc, true, false ) ); // mponoscopic, no depth
+	hudLayer = std::unique_ptr<QuadLayer>( new QuadLayer( session ) );
 	hudLayer->setHeadLocked();
 
-	mirrorTexture = nullptr;
 	initializeMirrorTexture( ofGetWidth(), ofGetHeight() );
 
+	bDisplayConnected = true;
 	bSetup = true;
 }
 
@@ -214,9 +595,13 @@ void ofxOculusDK2::uninitialize()
 {
 	destroyMirrorTexture();
 	eyeLayer.reset();
+	eyeLayer = nullptr;
 	hudLayer.reset();
+	hudLayer = nullptr;
 	transitionLayer.reset();
+	transitionLayer = nullptr;
 	backgroundLayer.reset();
+	backgroundLayer = nullptr;
 	bSetup = false;
 }
 
@@ -241,7 +626,7 @@ bool ofxOculusDK2::setup() {
 		return false;
 	}
 	
-	while(!createSession()){ Sleep(10); }
+	createSession();
 	initialize();
 
 	ofAddListener( ofEvents().windowResized, this, &ofxOculusDK2::onWindowResizeEvent );
@@ -256,10 +641,6 @@ bool ofxOculusDK2::isSetup() {
 float ofxOculusDK2::getUserEyeHeight() {
     return ovr_GetFloat(session, OVR_KEY_EYE_HEIGHT, OVR_DEFAULT_EYE_HEIGHT);
 }
-
-//bool ofxOculusDK2::getPositionTracking(void) {
-//    return bPositionTracking;
-//}
 
 void ofxOculusDK2::setPlayerScale(float scale){
 	currentPlayerScale = scale;
@@ -281,14 +662,6 @@ ofMatrix4x4 ofxOculusDK2::getOrientationMat() {
 
 ofQuaternion ofxOculusDK2::getOrientationQuat() {
 	return toOf(eyeRenderPose[0].Orientation);
-
-	/*
-    ovrTrackingState ts = ovr_GetTrackingState(session, ovr_GetTimeInSeconds(), true);
-    if (ts.StatusFlags & (ovrStatus_OrientationTracked | ovrStatus_PositionTracked)) {
-        return toOf(ts.HeadPose.ThePose.Orientation);
-    }
-    return ofQuaternion();
-	*/
 }
 
 ofMatrix4x4 ofxOculusDK2::getProjectionMatrix(ovrEyeType eye) {
@@ -333,36 +706,38 @@ ofRectangle ofxOculusDK2::getOculusViewport(ovrEyeType eye) {
 }
 
 void ofxOculusDK2::beginBackground() {
+	if (!bSetup || !bDisplayConnected) return;
+
     bUseBackground = true;
     insideFrame = true;
 	backgroundLayer->begin();
 }
 
 void ofxOculusDK2::endBackground() {
+	if (!bSetup || !bDisplayConnected) return;
+
 	backgroundLayer->end();
 }
 
 void ofxOculusDK2::setFade( float fade )
 {
 	fadeAmt = 1.0 - ofClamp(fade,0.0,1.0);
-	
+
 	transitionLayer->setClearColor( ofFloatColor(fadeColor.r,fadeColor.g, fadeColor.b, fadeAmt ) );
 	
-	if( !isFadedDown && isFading ){
+	if (!bSetup || !bDisplayConnected) return;
+
+	if( fadeAmt > 0.f ){
 		transitionLayer->begin();
 		transitionLayer->end();
 	}
-
-	if(fadeAmt == 1.0 ){ isFadedDown = true; isFading = false; }
-	else if( fadeAmt == 0.0 ){ isFadedDown = false; isFading = false; }
-	else { isFading = true; isFadedDown = false; }
 
 }
 
 
 void ofxOculusDK2::beginOverlay(float world_z , float scale,  int pixel_size_x, int pixel_size_y){
 	
-	if (!bSetup) return;
+	if (!bSetup || !bDisplayConnected) return;
 	//if(!isVisible) return;
 
 	auto res = hudLayer->getQuadResolution();
@@ -407,7 +782,7 @@ void ofxOculusDK2::beginOverlay(float world_z , float scale,  int pixel_size_x, 
 
 void ofxOculusDK2::endOverlay() {
 
-	if (!bSetup) return;
+	if (!bSetup || !bDisplayConnected) return;
 	//if(!isVisible) return;
 
 	glPopAttrib();
@@ -428,9 +803,6 @@ void ofxOculusDK2::grabFrameData()
 	hmdToEyeOffset[0] = eyeRenderDesc[0].HmdToEyeOffset; 
 	hmdToEyeOffset[1] =	eyeRenderDesc[1].HmdToEyeOffset;
 
-	auto recent_tracked_state = ovr_GetTrackingState(session, 0.0, false);
-	//bPositionTracking = recent_tracked_state.StatusFlags & ovrStatusBits::ovrStatus_PositionTracked;
-
 	ovr_GetEyePoses(session, frameIndex, ovrTrue, hmdToEyeOffset, eyeRenderPose, &sensorSampleTime);
 
 	eyeLayer->update( sensorSampleTime );
@@ -442,7 +814,7 @@ void ofxOculusDK2::grabFrameData()
 
 void ofxOculusDK2::beginLeftEye() {
 
-    if (!bSetup) return;
+	if (!bSetup || !bDisplayConnected) return;
 	//if(!isVisible) return;
 
 	if(!bSetFrameData){
@@ -459,7 +831,7 @@ void ofxOculusDK2::beginLeftEye() {
 
 void ofxOculusDK2::endLeftEye() {
 
-    if (!bSetup) return;
+	if (!bSetup || !bDisplayConnected) return;
 	//if(!isVisible) return;
 
 	eyeLayer->end();
@@ -470,7 +842,7 @@ void ofxOculusDK2::endLeftEye() {
 
 void ofxOculusDK2::beginRightEye() {
 
-    if (!bSetup) return;
+	if (!bSetup || !bDisplayConnected) return;
 	//if(!isVisible) return;
 
 	if(!bSetFrameData){
@@ -485,7 +857,7 @@ void ofxOculusDK2::beginRightEye() {
 
 void ofxOculusDK2::endRightEye() {
 
-    if (!bSetup) return;
+	if (!bSetup || !bDisplayConnected) return;
 
 	//if(!isVisible){
 		eyeLayer->end();
@@ -502,18 +874,22 @@ void ofxOculusDK2::endRightEye() {
 
 	std::vector<ovrLayerHeader*> layers;
 
-	if( bUseBackground ){
-		layers.push_back(&backgroundLayer->getHeader());
-	}
+	if( !bRenderError ){
 
-	layers.push_back( &eyeLayer->getHeader() );
+		if( bUseBackground ){
+			layers.push_back(&backgroundLayer->getHeader());
+		}
 
-	if( bUseOverlay ){
-		layers.push_back(&hudLayer->getHeader());
-	}
+		layers.push_back( &eyeLayer->getHeader() );
 
-	if( isFading || isFadedDown ){
-		layers.push_back( &transitionLayer->getHeader() );
+		if( bUseOverlay ){
+			layers.push_back(&hudLayer->getHeader());
+		}
+
+		if( fadeAmt > 0.f ){
+			layers.push_back( &transitionLayer->getHeader() );
+		}
+
 	}
 
 	ovrResult result = ovr_SubmitFrame(session, frameIndex, &viewScaleDesc, layers.data(), layers.size() );
@@ -521,6 +897,9 @@ void ofxOculusDK2::endRightEye() {
 
     if (!OVR_SUCCESS(result)){
 		ofLogError() << "OVR Render Error";
+		bRenderError = true;
+	}else{
+		bRenderError = false;
 	}
 
     ovrSessionStatus sessionStatus;
@@ -537,17 +916,35 @@ void ofxOculusDK2::endRightEye() {
 	isVisible = sessionStatus.IsVisible;
 
 	if( sessionStatus.DisplayLost ){
-		uninitialize();
-        ovr_Destroy(session);
-		//spin thread until HMD detected
-		while( !detectHDM() ){ Sleep(10); }
-		//spin thread until session created
-		while( !createSession() ){ Sleep(10); }
-		initialize();
+		if(bDisplayConnected){
+			uninitialize();
+			ovr_Destroy(session);
+			session = nullptr;
+			ofLogNotice() << "Destroyed session, attempting to reconnect...";
+			Sleep(1000);
+			ofAddListener( ofEvents().update, this, &ofxOculusDK2::reconnectHMD );
+			bDisplayConnected = false;
+		}
 	}
 	
 	bUseOverlay = false;
 	insideFrame = false;
+}
+
+void ofxOculusDK2::reconnectHMD( ofEventArgs& args )
+{
+	if( detectHDM() ){
+		createSession();
+		initialize();
+		Sleep(1000);
+		bDisplayConnected = false;
+		bRenderError = false;
+		bDisplayConnected = true;
+		ofRemoveListener( ofEvents().update, this, &ofxOculusDK2::reconnectHMD );
+		beginBackground();
+		endBackground();
+		ofLogNotice() << "Reconnected HMD!";
+	}
 }
 
 
