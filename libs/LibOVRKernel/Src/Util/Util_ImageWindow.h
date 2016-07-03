@@ -5,7 +5,7 @@ Content     :   An output object for windows that can display raw images for tes
 Created     :   March 13, 2014
 Authors     :   Dean Beeler
 
-Copyright   :   Copyright 2014-2016 Oculus, Inc. All Rights reserved.
+Copyright   :   Copyright 2014 Oculus, Inc. All Rights reserved.
 
 Licensed under the Oculus VR Rift SDK License Version 3.3 (the "License"); 
 you may not use the Oculus VR Rift SDK except in compliance with the License, 
@@ -92,16 +92,16 @@ public:
         textLines.ClearAndRelease();
     }
 
-    int						frameNumber;
+    int                        frameNumber;
 
     Array<CirclePlot> plots;
-    Array<TextPlot>			textLines;
-    void*			  imageData;
-    void*			  colorImageData;
-    int				  width;
-    int				  height;
-    int				  colorPitch;
-    bool			  ready;
+    Array<TextPlot>            textLines;
+    void*              imageData;
+    void*              colorImageData;
+    int                  width;
+    int                  height;
+    int                  colorPitch;
+    bool              ready;
 };
 
 #if defined(OVR_OS_WIN32)
@@ -111,12 +111,12 @@ class ImageWindow
     ID2D1RenderTarget* pRT;
     D2D1_SIZE_U resolution;
 
-    Mutex*						frontBufferMutex;
+    Mutex*                        frontBufferMutex;
 
-    InPlaceMutableDeque< Ptr<Frame> >	frames;
+    InPlaceMutableDeque< Ptr<Frame> >    frames;
 
-    ID2D1Bitmap*				greyBitmap;
-    ID2D1Bitmap*				colorBitmap;
+    ID2D1Bitmap*                greyBitmap;
+    ID2D1Bitmap*                colorBitmap;
     
 public:
     // constructors
@@ -140,18 +140,18 @@ public:
     void addCircle( float x , float y, float radius, float r, float g, float b, bool fill );
     void addText( float x, float y, float r, float g, float b, OVR::String text );
 
-    static ImageWindow*			GlobalWindow( int window ) { return globalWindow[window]; }
-    static int					WindowCount() { return windowCount; }
+    static ImageWindow*            GlobalWindow( int window ) { return globalWindow[window]; }
+    static int                    WindowCount() { return windowCount; }
 
 private:
 
-    Ptr<Frame>					lastUnreadyFrame();
+    Ptr<Frame>                    lastUnreadyFrame();
 
-    static const int			MaxWindows = 4;
-    static ImageWindow*			globalWindow[MaxWindows];
-    static int					windowCount;
-    static ID2D1Factory*		pD2DFactory;
-    static IDWriteFactory*		pDWriteFactory;
+    static const int            MaxWindows = 4;
+    static ImageWindow*            globalWindow[MaxWindows];
+    static int                    windowCount;
+    static ID2D1Factory*        pD2DFactory;
+    static IDWriteFactory*        pDWriteFactory;
     static HINSTANCE            hInstD2d1;
     static HINSTANCE            hInstDwrite;
 
@@ -183,14 +183,14 @@ public:
     void addCircle( float x , float y, float radius, float r, float g, float b, bool fill ) { OVR_UNUSED( x ); OVR_UNUSED( y ); OVR_UNUSED( radius ); OVR_UNUSED( r ); OVR_UNUSED( g ); OVR_UNUSED( b ); OVR_UNUSED( fill ); }
     void addText( float x, float y, float r, float g, float b, OVR::String text ) { OVR_UNUSED( x ); OVR_UNUSED( y ); OVR_UNUSED( r ); OVR_UNUSED( g ); OVR_UNUSED( b ); OVR_UNUSED( text ); }
 
-    static ImageWindow*			GlobalWindow( int window ) { return globalWindow[window]; }
-    static int					WindowCount() { return windowCount; }
+    static ImageWindow*            GlobalWindow( int window ) { return globalWindow[window]; }
+    static int                    WindowCount() { return windowCount; }
 
 private:
 
-    static const int			MaxWindows = 4;
-    static ImageWindow*			globalWindow[4];
-    static int					windowCount;
+    static const int            MaxWindows = 4;
+    static ImageWindow*            globalWindow[4];
+    static int                    windowCount;
 };
 
 #endif

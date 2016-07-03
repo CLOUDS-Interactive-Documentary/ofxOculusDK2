@@ -30,7 +30,6 @@ limitations under the License.
 #define OVR_System_h
 
 #include "OVR_Allocator.h"
-#include "OVR_Log.h"
 #include "OVR_Atomic.h"
 
 namespace OVR {
@@ -162,7 +161,7 @@ public:
     // a different Allocator here.
     static void OVR_CDECL Init();
 
-	// De-initializes System more, finalizing the threading system and destroying
+    // De-initializes System more, finalizing the threading system and destroying
     // the global memory allocator.
     static void OVR_CDECL Destroy();
 

@@ -3,7 +3,7 @@
 Filename    :   CAPI_GLE.h
 Content     :   OpenGL extensions support. Implements a stripped down glew-like 
                 interface with some additional functionality.
-Copyright   :   Copyright 2014 Oculus VR, LLC All Rights reserved.
+Copyright   :   Copyright 2014-2016 Oculus VR, LLC All Rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -1212,11 +1212,11 @@ namespace OVR
             void glXSwapIntervalEXT_Hook(::Display* dpy, GLXDrawable drawable, int interval);
 
             // GLX_OML_sync_control
-			Bool    glXGetMscRateOML_Hook(::Display* dpy, GLXDrawable drawable, int32_t* numerator, int32_t* denominator);
-			Bool    glXGetSyncValuesOML_Hook(::Display* dpy, GLXDrawable drawable, int64_t* ust, int64_t* msc, int64_t* sbc);
-			int64_t glXSwapBuffersMscOML_Hook(::Display* dpy, GLXDrawable drawable, int64_t target_msc, int64_t divisor, int64_t remainder);
-			Bool    glXWaitForMscOML_Hook(::Display* dpy, GLXDrawable drawable, int64_t target_msc, int64_t divisor, int64_t remainder, int64_t* ust, int64_t* msc, int64_t* sbc);
-			Bool    glXWaitForSbcOML_Hook(::Display* dpy, GLXDrawable drawable, int64_t target_sbc, int64_t* ust, int64_t* msc, int64_t* sbc);
+            Bool    glXGetMscRateOML_Hook(::Display* dpy, GLXDrawable drawable, int32_t* numerator, int32_t* denominator);
+            Bool    glXGetSyncValuesOML_Hook(::Display* dpy, GLXDrawable drawable, int64_t* ust, int64_t* msc, int64_t* sbc);
+            int64_t glXSwapBuffersMscOML_Hook(::Display* dpy, GLXDrawable drawable, int64_t target_msc, int64_t divisor, int64_t remainder);
+            Bool    glXWaitForMscOML_Hook(::Display* dpy, GLXDrawable drawable, int64_t target_msc, int64_t divisor, int64_t remainder, int64_t* ust, int64_t* msc, int64_t* sbc);
+            Bool    glXWaitForSbcOML_Hook(::Display* dpy, GLXDrawable drawable, int64_t target_sbc, int64_t* ust, int64_t* msc, int64_t* sbc);
 
             // GLX_MESA_swap_control
             int glXGetSwapIntervalMESA_Hook();
@@ -2032,7 +2032,7 @@ namespace OVR
       #elif defined(GLE_GLX_ENABLED)
         bool gle_GLX_ARB_create_context;
         bool gle_GLX_ARB_create_context_profile;
-		bool gle_GLX_ARB_create_context_robustness;
+        bool gle_GLX_ARB_create_context_robustness;
         bool gle_GLX_EXT_swap_control;
         bool gle_GLX_OML_sync_control;
         bool gle_MESA_swap_control;

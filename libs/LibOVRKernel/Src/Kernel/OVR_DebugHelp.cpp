@@ -25,13 +25,16 @@ limitations under the License.
 #include "OVR_UTF8Util.h"
 #include "OVR_Atomic.h"
 #include "OVR_SysFile.h"
+#include "OVR_Log.h"
 #include "Util/Util_SystemGUI.h"
+
 
 #include <stdlib.h>
 #include <time.h>
 
 #if defined(OVR_OS_WIN32) || defined(OVR_OS_WIN64)
     #pragma warning(push, 0)
+    OVR_DISABLE_MSVC_WARNING(4091) // 'keyword' : ignored on left of 'type' when no variable is declared
     #include "OVR_Win32_IncludeWindows.h"
     #include <ShlObj.h>
     #include <WinNT.h>
@@ -216,21 +219,12 @@ static size_t SprintfAddress(char* addressStr, size_t addressStrCapacity, const 
 
 
 
-enum MemoryAccess
-{
-    kMANone    = 0x00,
-    kMARead    = 0x01,
-    kMAWrite   = 0x02,
-    kMAExecute = 0x04
-};
-
-
 ///////////////////////////////////////////////////////////////////////////////
 // GetMemoryAccess
 //
 // Returns MemoryAccess flags. Returns kMAUnknown for unknown access.
 //
-static int GetMemoryAccess(const void* p)
+int GetMemoryAccess(const void* p)
 {
     int memoryAccessFlags = 0;
     
@@ -264,6 +258,62 @@ static int GetMemoryAccess(const void* p)
     return memoryAccessFlags;
 }
 
+/* Disabled until we can complete this, but leaving as a placeholder.
+
+/// Adds the given memory access flags to the existing access.
+/// Size doesn't have to be in page-sized increments.
+///
+bool AugmentMemoryAccess(const void* p, size_t size, int memoryAccessFlags)
+{
+    bool success = false;
+
+    #ifdef _WIN32
+        // This is tedious on Windows because it doesn't implement the memory access types as simple flags.
+        // We have to deal with each of the types individually:
+        //     0, PAGE_NOACCESS, PAGE_READONLY, PAGE_READWRITE, PAGE_EXECUTE, PAGE_EXECUTE_READ, 
+        //     PAGE_EXECUTE_READWRITE, PAGE_EXECUTE_WRITECOPY, PAGE_WRITECOPY
+
+        MEMORY_BASIC_INFORMATION mbi;
+
+        if(VirtualQuery(p, &mbi, sizeof(mbi)))
+        {
+            DWORD dwOldProtect = 0;
+            DWORD dwNewProtect = 0;
+
+            (void)memoryAccessFlags;
+
+            switch (mbi.Protect)
+            {
+                case 0:
+                    break;
+                case PAGE_NOACCESS:
+                    break;
+                case PAGE_READONLY:
+                    break;
+                case PAGE_READWRITE:
+                    break;
+                case PAGE_EXECUTE:
+                    break;
+                case PAGE_EXECUTE_READ: 
+                    break;
+                case PAGE_EXECUTE_READWRITE:
+                    break;
+                case PAGE_EXECUTE_WRITECOPY:
+                    break;
+                case PAGE_WRITECOPY:
+                    break;
+            }
+
+            if(VirtualProtect(const_cast<void*>(p), size, dwNewProtect, &dwOldProtect))
+            {
+                success = true;
+            }
+        }
+    #endif
+
+    return success;
+}
+*/
 
 
 // threadHandleStrCapacity should be at least 2+16+1 = 19 characters.
@@ -407,7 +457,7 @@ bool KillCdeclFunction(void* pFunction, int32_t functionReturnValue, SavedFuncti
     #if defined(OVR_OS_MS)
         // The same implementation works for both 32 bit x86 and 64 bit x64.
         DWORD dwOldProtect;
-        const uint8_t size = ((functionReturnValue == 0) ? 3 : 6);
+        const uint8_t size = ((functionReturnValue == 0) ? 3 : ((functionReturnValue == 1) ? 5 : 6)); // This is the number of instruction bytes we overwrite below.
     
         if(VirtualProtect(pFunction, size, PAGE_EXECUTE_READWRITE, &dwOldProtect))
         {
@@ -416,14 +466,29 @@ bool KillCdeclFunction(void* pFunction, int32_t functionReturnValue, SavedFuncti
                 pSavedFunction->Function = pFunction;
                 pSavedFunction->Size = size;
                 memcpy(pSavedFunction->Data, pFunction, pSavedFunction->Size);
+
+                const uint8_t opCode = *reinterpret_cast<uint8_t*>(pFunction);
+                if(opCode == 0xe9) // If the function was a 32 bit relative jump to the real function (which is a common thing)...
+                {
+                    int32_t jumpOffset;
+                    memcpy(&jumpOffset, reinterpret_cast<uint8_t*>(pFunction) + 1, sizeof(int32_t));
+                    pSavedFunction->FunctionImplementation = reinterpret_cast<uint8_t*>(pFunction) + 5 + jumpOffset;
+                }
+                else
+                    pSavedFunction->FunctionImplementation = nullptr;
             }
 
-            if(functionReturnValue == 0)
+            if(functionReturnValue == 0) // We write 3 bytes.
             {
                 const uint8_t instructionBytes[] = { 0x33, 0xc0, 0xc3 };              // xor eax, eax; ret
                 memcpy(pFunction, instructionBytes, sizeof(instructionBytes));
             }
-            else
+            else if(functionReturnValue == 1) // We write 5 bytes.
+            {
+                uint8_t instructionBytes[] = { 0x33, 0xc0, 0xff, 0xc0, 0xc3 };        // xor eax, eax; inc eax; ret      -- note that this is smaller than (mov eax 0x00000001; ret), which takes 6 bytes.
+                memcpy(pFunction, instructionBytes, sizeof(instructionBytes));
+            }
+            else // We write 6 bytes.
             {
                 uint8_t instructionBytes[] = { 0xb8, 0x00, 0x00, 0x00, 0x00, 0xc3 };  // mov eax, 0x00000000; ret
                 memcpy(instructionBytes + 1, &functionReturnValue, sizeof(int32_t));  // mov eax, functionReturnValue; ret
@@ -455,6 +520,16 @@ bool KillCdeclFunction(void* pFunction, SavedFunction* pSavedFunction)
                 pSavedFunction->Function = pFunction;
                 pSavedFunction->Size = size;
                 memcpy(pSavedFunction->Data, pFunction, pSavedFunction->Size);
+
+                const uint8_t opCode = *reinterpret_cast<uint8_t*>(pFunction);
+                if(opCode == 0xe9) // If the function was a 32 bit relative jump to the real function (which is a common thing)...
+                {
+                    int32_t jumpOffset;
+                    memcpy(&jumpOffset, reinterpret_cast<uint8_t*>(pFunction) + 1, sizeof(int32_t));
+                    pSavedFunction->FunctionImplementation = reinterpret_cast<uint8_t*>(pFunction) + 5 + jumpOffset;
+                }
+                else
+                    pSavedFunction->FunctionImplementation = nullptr;
             }
 
             const uint8_t instructionBytes[] = { 0xc3 };                        // asm ret
@@ -471,9 +546,75 @@ bool KillCdeclFunction(void* pFunction, SavedFunction* pSavedFunction)
 }
 
 
+bool RedirectCdeclFunction(void* pFunction, const void* pDestFunction, OVR::SavedFunction* pSavedFunction)
+{
+    #if defined(_WIN32)
+        // The same implementation works for both 32 bit x86 and 64 bit x64.
+        // We implement this as a 32 bit relative jump from pFunction to pDestFunction.
+        // This takes five bytes and is of the form:
+        //    E9 <32bit offset> 
+        // This can work only when the pDestFunction is within 32 bits of pFunction. That will always be
+        // the case when redirecting to a new location within the same module. But on 64 bit Windows, it 
+        // may be that pFunction is in one module and pDestFunction is in another module (e.g. DLL) with an 
+        // address that is farther than 32 bits away. In that case we need to instead do a 64 bit absolute 
+        // jump or if there isn't enough space for those instruction bytes then we need to do a near jump to  
+        // some nearby location where we can have a full 64 bit absolute jump. It turns out that in the case
+        // of calling DLL functions the absolute-jump-through-64bit-data 0xff instruction is used. We could
+        // change that 64 bit data.
+
+        #if defined(_WIN64)
+            if (abs((intptr_t)pDestFunction - (intptr_t)pFunction) >= ((intptr_t)1 << 31))
+            {
+                // A 64 bit jump would be required in this case, which we currently don't support, but could with some effort.
+                return false;
+            }
+        #endif
+
+        DWORD dwOldProtect;
+        const uint8_t size = 5;
+
+        if(VirtualProtect(pFunction, size, PAGE_EXECUTE_READWRITE, &dwOldProtect))
+        {
+            if(pSavedFunction) // If the user wants to save the implementation for later restoration...
+            {
+                pSavedFunction->Function = pFunction;
+                pSavedFunction->Size = size;
+                memcpy(pSavedFunction->Data, pFunction, pSavedFunction->Size);
+
+                const uint8_t opCode = *reinterpret_cast<uint8_t*>(pFunction);
+                if(opCode == 0xe9) // If the function was a 32 bit relative jump to the real function (which is a common thing)...
+                {
+                    int32_t jumpOffset;
+                    memcpy(&jumpOffset, reinterpret_cast<uint8_t*>(pFunction) + 1, sizeof(int32_t));
+                    pSavedFunction->FunctionImplementation = reinterpret_cast<uint8_t*>(pFunction) + 5 + jumpOffset;
+                }
+                else
+                    pSavedFunction->FunctionImplementation = nullptr;
+            }
+
+            union Rel32Bytes
+            {
+                int32_t rel32;
+                uint8_t bytes[4];
+            } rel32Bytes = { ((int32_t)pDestFunction - (int32_t)pFunction) - size }; // -size because the offset is relative to after the 5 byte opcode sequence.
+
+            uint8_t instructionBytes[] = { 0xe9, rel32Bytes.bytes[0], rel32Bytes.bytes[1], rel32Bytes.bytes[2], rel32Bytes.bytes[3] };  // asm jmp <rel32>
+            memcpy(pFunction, instructionBytes, sizeof(instructionBytes));
+            VirtualProtect(pFunction, size, dwOldProtect, &dwOldProtect);
+            return true;
+        }
+
+    #else
+        OVR_UNUSED2(pFunction, pSavedFunction);
+    #endif
+
+    return false;
+}
+
+
 bool RestoreCdeclFunction(SavedFunction* pSavedFunction)
 {
-    if(pSavedFunction->Size)
+    if(pSavedFunction && pSavedFunction->Size)
     {
         #if defined(OVR_OS_MS)
             DWORD dwOldProtect;
@@ -491,6 +632,105 @@ bool RestoreCdeclFunction(SavedFunction* pSavedFunction)
 
     return false;
 }
+
+
+
+
+CopiedFunction::CopiedFunction(const void* pFunction, size_t size)
+  : Function(nullptr)
+{
+    if (pFunction)
+        Copy(pFunction, size);
+}
+
+
+CopiedFunction::~CopiedFunction()
+{
+    // To consider: We may have use cases in which we want to intentionally not free the 
+    // memory and instead let it live beyond our lifetime so that it can still be called.
+    Free();
+}
+
+
+const void* CopiedFunction::GetRealFunctionLocation(const void* pFunction)
+{
+    // It turns out that many functions are really jumps to the actual function code.
+    // These jumps are typically implemented with the E9 machine opcode, followed by 
+    // an int32 relative jump distance. We need to handle that case.
+
+    // If the code is executable but not readable, we'll need to make it readable.
+    bool readable = (pFunction && (GetMemoryAccess(pFunction) & OVR::kMARead) != 0);
+
+    if (!readable)
+    {
+        return nullptr;
+
+        // To do: Implement this:
+        // readable = AugmentMemoryAccess(opCode, 1, OVR::kMARead);
+    }
+
+    const uint8_t* opCode = static_cast<const uint8_t*>(pFunction);
+
+    if(*opCode == 0xE9) // If this is the E9 relative jmp instuction (which happens to be always used for local-module trampolining by VC++)...
+    {
+        int32_t jumpDistance;
+        memcpy(&jumpDistance, opCode + 1, sizeof(jumpDistance));
+
+        pFunction = (opCode + 5 + jumpDistance); // +5 because the jmp is relative to the end of the five byte 0xE9 instruction.
+        // Is it possible that pFunction points to another trampoline? I haven't seen such a thing, 
+        // but it could be handled by a loop here or simply goto the opCode assignment line above.
+    }
+
+    return pFunction;
+}
+
+
+const void* CopiedFunction::Copy(const void* pFunction, size_t size)
+{
+    Free();
+
+    #if defined(_WIN32)
+        if (size == 0) // If we don't know the size...
+        {
+            // When debug symbols are present, we could look up the function size.
+            // On x64 we can possibly look up the size via the stack unwind data.
+            // On x86 and x64 we could possibly look for return statements while
+            // also checking if pFunction is simply a short trampoline.
+            size = 4096; // For our current uses this is good enough. But it's not general.
+        }
+
+        void* pNewFunction = VirtualAlloc(nullptr, size, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+
+        if (pNewFunction)
+        {
+            // It turns out that (especially in debug builds), pFunction may be a 
+            // trampoline (unilateral jump) to the real function implementation elsewhere.
+            // We need to copy the real implementation and not the jump, at least if the 
+            // jump is a relative jump (usually the case) and not an absolute jump.
+            const void* pRealFunction = GetRealFunctionLocation(pFunction);
+
+            memcpy(pNewFunction, pRealFunction, size);
+            Function = pNewFunction;
+        }
+    #endif
+
+    return Function;
+}
+
+
+void CopiedFunction::Free()
+{
+    if (Function)
+    {
+        #if defined(_WIN32)
+            VirtualFree(Function, 0, MEM_RELEASE);
+        #endif
+
+        Function = nullptr;
+    }
+}
+
+
 
 
 bool OVRIsDebuggerPresent()
@@ -924,101 +1164,117 @@ void GetOSVersionName(char* versionName, size_t versionNameCapacity)
     #if defined(OVR_OS_MS)
         const char* name = "unknown";
 
-        OSVERSIONINFOEXW vi;
-        memset(&vi, 0, sizeof(vi));
+        RTL_OSVERSIONINFOEXW vi = {};
         vi.dwOSVersionInfoSize = sizeof(vi);
 
-        if(GetVersionExW((LPOSVERSIONINFOW)&vi))
+        // We use RtlGetVersion instead of GetVersionExW because the latter doesn't actually return the version of Windows, it returns
+        // the highest version of Windows that this application's manifest declared that it was compatible with. We want to know the 
+        // real version of Windows and so need to fall back to RtlGetVersion.
+        LONG(WINAPI * pfnRtlGetVersion)(RTL_OSVERSIONINFOEXW*);
+        pfnRtlGetVersion = (decltype(pfnRtlGetVersion))(uintptr_t)GetProcAddress(GetModuleHandleW((L"ntdll.dll")), "RtlGetVersion");
+
+        if (pfnRtlGetVersion) // This will virtually always succeed.
         {
-            if (vi.dwMajorVersion == 10)
+            if (pfnRtlGetVersion(&vi) != 0) // pfnRtlGetVersion will virtually always succeed.
+                memset(&vi, 0, sizeof(vi));
+        }
+
+        if (vi.dwMajorVersion == 10)
+        {
+            if (vi.dwMinorVersion == 0)
             {
-                if (vi.dwMinorVersion == 0)
+                if(vi.dwBuildNumber >= 10586)
                 {
-                    if(vi.dwBuildNumber >= 10586)
-                    {
-                        if (vi.wProductType == VER_NT_WORKSTATION)
-                            name = "Windows 10 TH2+";
-                        else
-                            name = "Windows Server 2016 Technical Preview TH2+";
-                    }
-                    else
-                    {
-                        if (vi.wProductType == VER_NT_WORKSTATION)
-                            name = "Windows 10";
-                        else
-                            name = "Windows Server 2016 Technical Preview";
-                    }
-                }
-                else
-                {
-                    // Unknown recent version.
                     if (vi.wProductType == VER_NT_WORKSTATION)
-                        name = "Windows 10 Unknown";
+                        name = "Windows 10 TH2+";
                     else
-                        name = "Windows Server 2016 Unknown";
-                }
-            }
-            else if(vi.dwMajorVersion >= 7)
-            {
-                // Unknown recent version.
-            }
-            else if(vi.dwMajorVersion >= 6)
-            {
-                if(vi.dwMinorVersion >= 4)
-                    name = "Windows 10 Pre Released";
-                else if(vi.dwMinorVersion >= 3)
-                {
-                    if(vi.wProductType == VER_NT_WORKSTATION)
-                        name = "Windows 8.1";
-                    else
-                        name = "Windows Server 2012 R2";
-                }
-                else if(vi.dwMinorVersion >= 2)
-                {
-                    if(vi.wProductType == VER_NT_WORKSTATION)
-                        name = "Windows 8";
-                    else
-                        name = "Windows Server 2012";
-                }
-                else if(vi.dwMinorVersion >= 1)
-                {
-                    if(vi.wProductType == VER_NT_WORKSTATION)
-                        name = "Windows 7";
-                    else
-                        name = "Windows Server 2008 R2";
+                        name = "Windows Server 2016 Technical Preview TH2+";
                 }
                 else
                 {
-                    if(vi.wProductType == VER_NT_WORKSTATION)
-                        name = "Windows Vista";
+                    if (vi.wProductType == VER_NT_WORKSTATION)
+                        name = "Windows 10";
                     else
-                        name = "Windows Server 2008";
-                }
-            }
-            else if(vi.dwMajorVersion >= 5)
-            {
-                if(vi.dwMinorVersion == 0)
-                    name = "Windows 2000";
-                else if(vi.dwMinorVersion == 1)
-                    name = "Windows XP";
-                else // vi.dwMinorVersion == 2
-                {
-                    if(GetSystemMetrics(SM_SERVERR2) != 0)
-                        name = "Windows Server 2003 R2";
-                    else if(vi.wSuiteMask & VER_SUITE_WH_SERVER)
-                        name = "Windows Home Server";
-                    if(GetSystemMetrics(SM_SERVERR2) == 0)
-                        name = "Windows Server 2003";
-                    else
-                        name = "Windows XP Professional x64 Edition";
+                        name = "Windows Server 2016 Technical Preview";
                 }
             }
             else
-                name = "Windows 98 or earlier";
+            {
+                // Unknown recent version.
+                if (vi.wProductType == VER_NT_WORKSTATION)
+                    name = "Windows 10 Unknown";
+                else
+                    name = "Windows Server 2016 Unknown";
+            }
         }
+        else if(vi.dwMajorVersion >= 7)
+        {
+            // Unknown recent version.
+        }
+        else if(vi.dwMajorVersion >= 6)
+        {
+            if(vi.dwMinorVersion >= 4)
+                name = "Windows 10 Pre Released";
+            else if(vi.dwMinorVersion >= 3)
+            {
+                if(vi.wProductType == VER_NT_WORKSTATION)
+                    name = "Windows 8.1";
+                else
+                    name = "Windows Server 2012 R2";
+            }
+            else if(vi.dwMinorVersion >= 2)
+            {
+                if(vi.wProductType == VER_NT_WORKSTATION)
+                    name = "Windows 8";
+                else
+                    name = "Windows Server 2012";
+            }
+            else if(vi.dwMinorVersion >= 1)
+            {
+                if(vi.wProductType == VER_NT_WORKSTATION)
+                    name = "Windows 7";
+                else
+                    name = "Windows Server 2008 R2";
+            }
+            else
+            {
+                if(vi.wProductType == VER_NT_WORKSTATION)
+                    name = "Windows Vista";
+                else
+                    name = "Windows Server 2008";
+            }
+        }
+        else if(vi.dwMajorVersion >= 5)
+        {
+            if(vi.dwMinorVersion == 0)
+                name = "Windows 2000";
+            else if(vi.dwMinorVersion == 1)
+                name = "Windows XP";
+            else // vi.dwMinorVersion == 2
+            {
+                if(GetSystemMetrics(SM_SERVERR2) != 0)
+                    name = "Windows Server 2003 R2";
+                else if(vi.wSuiteMask & VER_SUITE_WH_SERVER)
+                    name = "Windows Home Server";
+                if(GetSystemMetrics(SM_SERVERR2) == 0)
+                    name = "Windows Server 2003";
+                else
+                    name = "Windows XP Professional x64 Edition";
+            }
+        }
+        else
+            name = "Windows 98 or earlier";
 
         OVR_strlcpy(versionName, name, versionNameCapacity);
 
+        if (vi.szCSDVersion[0]) // If the version is reporting a service pack string...
+        {
+            OVR_strlcat(versionName, ", ", versionNameCapacity);
+
+            char servicePackname8[128];
+            OVR::UTF8Util::Strlcpy(servicePackname8, sizeof(servicePackname8), vi.szCSDVersion);
+            OVR_strlcat(versionName, servicePackname8, versionNameCapacity);
+        }
     #elif defined(OVR_OS_UNIX) || defined(OVR_OS_APPLE)
         utsname utsName;
         memset(&utsName, 0, sizeof(utsName));
@@ -1221,6 +1477,7 @@ void CreateException(CreateExceptionType exceptionType)
             }
         }
 
+        --sSymUsageCount;
         return false;
     }
 
@@ -1355,8 +1612,12 @@ size_t SymbolLookup::GetBacktrace(void* addressArray[], size_t addressArrayCapac
                     }
                     else
                     {
-                        context.Rip  = (ULONG64)(*(PULONG64)context.Rsp);
-                        context.Rsp += 8;
+                        // This would be viable only if we could rely on the presence of stack frames.
+                        // context.Rip  = (ULONG64)(*(PULONG64)context.Rsp);
+                        // context.Rsp += 8;
+
+                        // Be safe and just bail.
+                        context.Rip = 0;
                     }
 
                     if (context.Rip && (frameIndex < addressArrayCapacity))
@@ -3520,68 +3781,129 @@ void ExceptionHandler::WriteReport(const char* reportType)
 
             WriteReportLine("\nDisplay adapter list\n");
 
+            // helper function to properly init & clear variants
+            struct VariantHelper
+            {
+                VariantHelper()
+                {
+                    ::VariantInit(&var); // must init before use
+                }
+                ~VariantHelper()
+                {
+                    ::VariantClear(&var); // must clear after use to avoid leaks
+                }
+
+                const BSTR getBSTR() const // return a value or default empty string
+                {
+                    if ( ( var.vt == VT_BSTR ) && var.bstrVal )
+                         return var.bstrVal;
+                    return L"";
+                }
+
+                uint32_t getLVal() const // return a value or default 0
+                {
+                    if ( var.vt == VT_I4 )
+                         return var.lVal;
+                    return 0;
+                }
+
+                VARIANT* getVARIANT() // convenience function for passing to Get()
+                {
+                    return &var;
+                }
+
+                private :
+                VARIANT var;
+            };
+
             for(unsigned i = 0; SUCCEEDED(hr) && uReturned; i++)
             {
                 char    sString[256];
-                VARIANT var;
 
                 if(i > 0)
                     WriteReportLine("\n");
 
                 WriteReportLineF("Info for display adapter %u\n", i);
 
-                hr = pObj->Get(L"Name", 0, &var, nullptr, nullptr);
-                if(SUCCEEDED(hr))
                 {
-                    WideCharToMultiByte(CP_ACP, 0, var.bstrVal, -1, sString, sizeof(sString), nullptr, nullptr);
-                    WriteReportLineF("Display Adapter Name: %s\n", sString);
+                    VariantHelper v;
+                    hr = pObj->Get(L"Name", 0, v.getVARIANT(), nullptr, nullptr);
+                    if(SUCCEEDED(hr))
+                    {
+                       
+                        WideCharToMultiByte(CP_ACP, 0, v.getBSTR(), -1, sString, sizeof(sString), nullptr, nullptr);
+                        WriteReportLineF("Display Adapter Name: %s\n", sString);
+                    }
+                }
+                {
+                    VariantHelper v;
+                    hr = pObj->Get(L"AdapterRAM", 0, v.getVARIANT(), nullptr, nullptr);
+                    if(SUCCEEDED(hr))
+                    {
+                        uint32_t value( v.getLVal() );
+
+                        WriteReportLineF("Display Adapter RAM: %u %s\n",
+                                (value > (1024*1024*1024) ? value/(1024*1024*1024) : value/(1024*1024)), (value > (1024*1024*1024) ? "GiB" : "MiB"));
+                    }
+                }
+                {
+                    VariantHelper v;
+                    hr = pObj->Get(L"DeviceID", 0, v.getVARIANT(), nullptr, nullptr);
+                    if(SUCCEEDED(hr))
+                    {
+                        WideCharToMultiByte(CP_ACP, 0, v.getBSTR(), -1, sString, sizeof(sString), nullptr, nullptr);
+                        WriteReportLineF("Display Adapter DeviceID: %s\n", sString);
+                    }
+                }
+                {
+                    VariantHelper v;
+                    hr = pObj->Get(L"DriverVersion", 0, v.getVARIANT(), nullptr, nullptr);
+                    if(SUCCEEDED(hr))
+                    {
+                        WideCharToMultiByte(CP_ACP, 0, v.getBSTR(), -1, sString, sizeof(sString), nullptr, nullptr);
+                        WriteReportLineF("Display Adapter DriverVersion: %s\n", sString);
+                    }
                 }
 
-                hr = pObj->Get(L"AdapterRAM", 0, &var, nullptr, nullptr);
-                if(SUCCEEDED(hr))
                 {
-                    WriteReportLineF("Display Adapter RAM: %u %s\n",
-                            ((uint32_t)var.lVal > (1024*1024*1024) ? (uint32_t)var.lVal/(1024*1024*1024) : (uint32_t)var.lVal/(1024*1024)), ((uint32_t)var.lVal > (1024*1024*1024) ? "GiB" : "MiB"));
+                    VariantHelper v;
+                    hr = pObj->Get(L"DriverDate", 0, v.getVARIANT(), nullptr, nullptr);
+                    if(SUCCEEDED(hr))
+                    {
+                        std::wstring val( v.getBSTR() ); // may return empty string
+
+                        while( val.size() < 8 ) // make at least 8 chars long to simplify below code
+                        {
+                            val += L" ";
+                        }
+
+                        // http://technet.microsoft.com/en-us/library/ee156576.aspx
+                        wchar_t year[5] = { val[0], val[1], val[2], val[3], 0 };
+                        wchar_t month[3] = { val[4], val[5], 0 };
+                        wchar_t monthDay[3] = { val[6], val[7], 0 };
+
+                        WriteReportLineF("Display Adapter DriverDate (US format): %ls/%ls/%ls\n", month, monthDay, year);
+                    }
+                }
+                {
+                    VariantHelper v;
+                    // VideoProcessor
+                    hr = pObj->Get(L"VideoProcessor", 0, v.getVARIANT(), nullptr, nullptr);
+                    if(SUCCEEDED(hr))
+                    {
+                        WideCharToMultiByte(CP_ACP, 0, v.getBSTR(), -1, sString, sizeof(sString), nullptr, nullptr);
+                        WriteReportLineF("Display Adapter VideoProcessor %s\n", sString);
+                    }
                 }
 
-                hr = pObj->Get(L"DeviceID", 0, &var, nullptr, nullptr);
-                if(SUCCEEDED(hr))
                 {
-                    WideCharToMultiByte(CP_ACP, 0, var.bstrVal, -1, sString, sizeof(sString), nullptr, nullptr);
-                    WriteReportLineF("Display Adapter DeviceID: %s\n", sString);
-                }
-
-                hr = pObj->Get(L"DriverVersion", 0, &var, nullptr, nullptr);
-                if(SUCCEEDED(hr))
-                {
-                    WideCharToMultiByte(CP_ACP, 0, var.bstrVal, -1, sString, sizeof(sString), nullptr, nullptr);
-                    WriteReportLineF("Display Adapter DriverVersion: %s\n", sString);
-                }
-
-                hr = pObj->Get(L"DriverDate", 0, &var, nullptr, nullptr);
-                if(SUCCEEDED(hr))
-                {
-                    // http://technet.microsoft.com/en-us/library/ee156576.aspx
-                    wchar_t year[5] = { var.bstrVal[0], var.bstrVal[1], var.bstrVal[2], var.bstrVal[3], 0 };
-                    wchar_t month[3] = { var.bstrVal[4], var.bstrVal[5], 0 };
-                    wchar_t monthDay[3] = { var.bstrVal[6], var.bstrVal[7], 0 };
-
-                    WriteReportLineF("Display Adapter DriverDate (US format): %ls/%ls/%ls\n", month, monthDay, year);
-                }
-
-                // VideoProcessor
-                hr = pObj->Get(L"VideoProcessor", 0, &var, nullptr, nullptr);
-                if(SUCCEEDED(hr))
-                {
-                    WideCharToMultiByte(CP_ACP, 0, var.bstrVal, -1, sString, sizeof(sString), nullptr, nullptr);
-                    WriteReportLineF("Display Adapter VideoProcessor %s\n", sString);
-                }
-
-                hr = pObj->Get(L"VideoModeDescription", 0, &var, nullptr, nullptr);
-                if(SUCCEEDED(hr))
-                {
-                    WideCharToMultiByte(CP_ACP, 0, var.bstrVal, -1, sString, sizeof(sString), nullptr, nullptr);
-                    WriteReportLineF("Display Adapter VideoModeDescription: %s\n", sString);
+                    VariantHelper v;
+                    hr = pObj->Get(L"VideoModeDescription", 0, v.getVARIANT(), nullptr, nullptr);
+                    if(SUCCEEDED(hr))
+                    {
+                        WideCharToMultiByte(CP_ACP, 0, v.getBSTR(), -1, sString, sizeof(sString), nullptr, nullptr);
+                        WriteReportLineF("Display Adapter VideoModeDescription: %s\n", sString);
+                    }
                 }
 
                 pObj->Release();
@@ -4072,6 +4394,7 @@ static bool IsModuleDataSegmentNeeded(const wchar_t* modulePath)
             L"dxgi",
             L"nv",
             L"ati",
+            L"amd"
         };
 
         wchar_t fileName[MAX_PATH] = {};
@@ -4249,7 +4572,7 @@ void ExceptionHandler::WriteMiniDump()
                     OVR_ASSERT(false);
 
                     BOOL result = pMiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), hFile,
-                                                        (MINIDUMP_TYPE)miniDumpFlags, &minidumpExceptionInfo,
+                                                        (MINIDUMP_TYPE)miniDumpFlags, pExceptionPointers ? &minidumpExceptionInfo : nullptr,
                                                         (CONST PMINIDUMP_USER_STREAM_INFORMATION)nullptr, &minidumpCallbackInfo);
                     CloseHandle(hFile);
                     hFile = 0;
@@ -4420,20 +4743,14 @@ void ExceptionHandler::ReportDeadlock(const char* threadName,
                                       const char* organizationName,
                                       const char* applicationName)
 {
+    if (!organizationName || !organizationName[0])
+        organizationName = "Oculus";
+    if (!applicationName || !applicationName[0])
+        applicationName = "DefaultApp";
+
     ExceptionHandler handler;
 
-    if (!organizationName || !organizationName[0] ||
-        !applicationName || !applicationName[0])
-    {
-        char tempPath[OVR_MAX_PATH];
-        GetCrashDumpDirectory(tempPath, OVR_ARRAY_COUNT(tempPath));
-        OVR_strlcat(tempPath, "Deadlock Report (%s).txt", OVR_ARRAY_COUNT(tempPath));
-        handler.SetExceptionPaths(tempPath);
-    }
-    else
-    {
-        handler.SetPathsFromNames(organizationName, applicationName, "Deadlock Report (%s).txt");
-    }
+    handler.SetPathsFromNames(organizationName, applicationName, "Deadlock Report (%s).txt", "Deadlock Minidump (%s).mdmp");
 
     OVR_snprintf(handler.exceptionInfo.exceptionDescription,
                  sizeof(handler.exceptionInfo.exceptionDescription),
@@ -4442,6 +4759,7 @@ void ExceptionHandler::ReportDeadlock(const char* threadName,
     handler.exceptionInfo.timeVal = time(nullptr);
     handler.exceptionInfo.time = *gmtime(&handler.exceptionInfo.timeVal);
     handler.WriteReport("Deadlock");
+    handler.WriteMiniDump();
 }
 
 
