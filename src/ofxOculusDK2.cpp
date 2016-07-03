@@ -476,7 +476,20 @@ ofxOculusDK2::ofxOculusDK2() {
 	bRenderError = false;
 
     session = nullptr;
-    frameIndex = 0;;
+    frameIndex = 0;
+
+	//CURRENTLY only supports remote
+	buttonStates[ovrButton_Up]	= false;
+	buttonStates[ovrButton_Down]	= false;
+	buttonStates[ovrButton_Left]	= false;
+	buttonStates[ovrButton_Right]	= false;
+	buttonStates[ovrButton_Enter]	= false;
+	buttonStates[ovrButton_Back]		= false;
+	buttonStates[ovrButton_VolUp]	= false;
+	buttonStates[ovrButton_VolDown]	= false;
+	buttonStates[ovrButton_Home]	= false;
+
+
 }
 
 ofxOculusDK2::~ofxOculusDK2() {
@@ -568,7 +581,7 @@ void ofxOculusDK2::initialize()
 
 	eyeLayer = std::unique_ptr<EyeFovLayer>( new EyeFovLayer( session, hmdDesc ) );
 	backgroundLayer = std::unique_ptr<EyeFovLayer>( new EyeFovLayer( session, hmdDesc, true, false ) ); //monoscopic, no depth
-	transitionLayer =  std::unique_ptr<EyeFovLayer>( new EyeFovLayer( session, hmdDesc, true, false ) ); // mponoscopic, no depth
+	transitionLayer =  std::unique_ptr<EyeFovLayer>( new EyeFovLayer( session, hmdDesc, true, false ) ); // monoscopic, no depth
 	hudLayer = std::unique_ptr<QuadLayer>( new QuadLayer( session ) );
 	hudLayer->setHeadLocked();
 
@@ -630,6 +643,8 @@ bool ofxOculusDK2::setup() {
 	initialize();
 
 	ofAddListener( ofEvents().windowResized, this, &ofxOculusDK2::onWindowResizeEvent );
+	
+	grabFrameData();
 
     return true;
 }
@@ -662,6 +677,20 @@ ofMatrix4x4 ofxOculusDK2::getOrientationMat() {
 
 ofQuaternion ofxOculusDK2::getOrientationQuat() {
 	return toOf(eyeRenderPose[0].Orientation);
+}
+
+ofVec3f ofxOculusDK2::getTranslation(){
+	ofMatrix4x4 mat = getViewMatrix();
+	ofQuaternion rot,so;
+	ofVec3f pos, scale;
+	mat.decompose(pos,rot,scale,so);
+	return pos;
+}
+
+bool ofxOculusDK2::getButtonClicked(ovrButton button){
+	bool b = buttonChangedStates[button];
+	buttonChangedStates[button] = false;
+	return b;
 }
 
 ofMatrix4x4 ofxOculusDK2::getProjectionMatrix(ovrEyeType eye) {
@@ -701,8 +730,16 @@ void ofxOculusDK2::setupEyeParams(ovrEyeType eye) {
     ofLoadMatrix(getViewMatrix(eye));
 }
 
-ofRectangle ofxOculusDK2::getOculusViewport(ovrEyeType eye) {
+ofCamera& ofxOculusDK2::getTransformedCamera(){
+	return transformedCamera;
+}
+
+ofRectangle ofxOculusDK2::getViewport(ovrEyeType eye) {
 	return eyeViewports[eye];
+}
+
+ofRectangle ofxOculusDK2::getDistortedViewport(ovrEyeType eye) {
+	return toOf(eyeRenderDesc[eye].DistortedViewport);
 }
 
 void ofxOculusDK2::beginBackground() {
@@ -794,8 +831,10 @@ void ofxOculusDK2::endOverlay() {
 
 void ofxOculusDK2::grabFrameData()
 {
-	baseCamera->begin(getOculusViewport());
-    baseCamera->end();
+	if(baseCamera != NULL){
+		baseCamera->begin(getViewport());
+		baseCamera->end();
+	}
 
 	eyeRenderDesc[0] = ovr_GetRenderDesc(session, ovrEye_Left, hmdDesc.DefaultEyeFov[0]);
 	eyeRenderDesc[1] = ovr_GetRenderDesc(session, ovrEye_Right, hmdDesc.DefaultEyeFov[1]);
@@ -809,10 +848,26 @@ void ofxOculusDK2::grabFrameData()
 	backgroundLayer->update( sensorSampleTime );
 	transitionLayer->update( sensorSampleTime );
 
+	ovrInputState inputState;
+	if (OVR_SUCCESS(ovr_GetInputState(session, ovrControllerType_Remote, &inputState))){
+		map<ovrButton,bool>::iterator it;
+		for(it = buttonStates.begin(); it != buttonStates.end(); it++){
+			if(inputState.Buttons & it->first){
+				buttonChangedStates[it->first] = !it->second;
+				it->second = true;
+			}
+			else{
+				it->second = false;
+			}
+		}
+	}
+
 	bSetFrameData = true;
 }
 
 void ofxOculusDK2::beginLeftEye() {
+
+	/////////
 
 	if (!bSetup || !bDisplayConnected) return;
 	//if(!isVisible) return;
@@ -865,7 +920,7 @@ void ofxOculusDK2::endRightEye() {
 		ofPopView();
 	//}
 	
-	//SUBMITE FRAME
+	//SUBMIT FRAME
 
 	ovrViewScaleDesc viewScaleDesc;
 	viewScaleDesc.HmdSpaceToWorldScaleInMeters = 1.0f;
@@ -915,6 +970,11 @@ void ofxOculusDK2::endRightEye() {
 
 	isVisible = sessionStatus.IsVisible;
 
+	//track transformed camera
+	transformedCamera.setTransformMatrix(getViewMatrix());
+	transformedCamera.begin(getViewport());
+	transformedCamera.end();
+	
 	if( sessionStatus.DisplayLost ){
 		if(bDisplayConnected){
 			uninitialize();
@@ -955,26 +1015,32 @@ ofVec3f ofxOculusDK2::worldToScreen(ofVec3f worldPosition) {
     if (baseCamera == NULL) {
         return ofVec3f(0, 0, 0);
     }
+	
+    ofRectangle viewport = getViewport(ovrEye_Left);
+	ofMatrix4x4 projectionMatrixLeft =  getProjectionMatrix(ovrEye_Left);
+    ofMatrix4x4 projectionMatrixRight = getProjectionMatrix(ovrEye_Right);
 
-    ofRectangle viewport = getOculusViewport();
+	ofMatrix4x4 modelViewMatrixLeft  = getViewMatrix(ovrEye_Left);
+	ofMatrix4x4 modelViewMatrixRight = getViewMatrix(ovrEye_Right);
 
-    ofMatrix4x4 projectionMatrixLeft = toOf(ovrMatrix4f_Projection(eyeRenderDesc[ovrEye_Left].Fov, 0.01f, 10000.0f, true));
-    ofMatrix4x4 projectionMatrixRight = toOf(ovrMatrix4f_Projection(eyeRenderDesc[ovrEye_Right].Fov, 0.01f, 10000.0f, true));
 
-    ofMatrix4x4 modelViewMatrix = getOrientationMat();
-    modelViewMatrix = modelViewMatrix * baseCamera->getGlobalTransformMatrix();
-    baseCamera->begin(viewport);
-    baseCamera->end();
-    modelViewMatrix = modelViewMatrix.getInverse();
+    ofVec3f cameraXYZ = worldPosition * (modelViewMatrixLeft * projectionMatrixLeft);
+    cameraXYZ.interpolate(worldPosition * (modelViewMatrixRight * projectionMatrixRight), 0.5f);
 
-    ofVec3f cameraXYZ = worldPosition * (modelViewMatrix * projectionMatrixLeft);
-    cameraXYZ.interpolate(worldPosition * (modelViewMatrix * projectionMatrixRight), 0.5f);
+	///HACK HACK HACK -- projection is offset for some inexplicable reason
+	cameraXYZ.x += .0;
+	cameraXYZ.y += -.1;
+	///////
 
-    ofVec3f screenXYZ((cameraXYZ.x + 1.0f) / 2.0f * viewport.width + viewport.x,
-        (1.0f - cameraXYZ.y) / 2.0f * viewport.height + viewport.y,
-        cameraXYZ.z);
+	ofVec3f screenXYZ;
+    screenXYZ.x = (cameraXYZ.x + 1.0f) / 2.0f * viewport.width  + viewport.x;
+	screenXYZ.y = (1.0f - cameraXYZ.y) / 2.0f * viewport.height + viewport.y, 
+	screenXYZ.z = cameraXYZ.z;
+	
+	
+	//ofVec3f screenXYZ = transformedCamera.screenToWorld(worldPosition);
+
     return screenXYZ;
-
 }
 
 //TODO: respond to Positional tracking!
@@ -997,8 +1063,8 @@ void ofxOculusDK2::multBillboardMatrix(ofVec3f objectPosition, ofVec3f updirecti
 
 ofVec2f ofxOculusDK2::gazePosition2D() {
     ofVec3f angles = getOrientationQuat().getEuler();
-	return ofVec2f(ofMap(angles.y, 90, -90, 0, getOculusViewport().width),
-				   ofMap(angles.z, 90, -90, 0, getOculusViewport().height));
+	return ofVec2f(ofMap(angles.y, 90, -90, 0, getViewport().width),
+				   ofMap(angles.z, 90, -90, 0, getViewport().height));
 }
 
 void ofxOculusDK2::draw() {

@@ -11,8 +11,6 @@
 
 #include "ofMain.h"
 
-//#include "Win32_GLAppUtil.h"
-//#include "OVR_CAPI.h"
 #include "OVR_CAPI_GL.h"
 #include "Extras/OVR_Math.h"
 
@@ -149,6 +147,7 @@ private:
 
 };
 
+
 //---------------------------------------------------------------------------------------
 class ofxOculusDK2 {
 public:
@@ -160,7 +159,7 @@ public:
     //the oculus rendering will create a stereo pair from this camera
     //and mix in the head transformation
     ofCamera* baseCamera;
-	ofCamera riftCamera;
+	ofCamera& getTransformedCamera();
 
     bool setup();
 
@@ -193,6 +192,10 @@ public:
 
     bool getPositionTracking();
 
+	//HACK for buttons
+	bool getButtonClicked(ovrButton button);
+	/////
+
     ofQuaternion getOrientationQuat();
     ofMatrix4x4 getOrientationMat();
     ofVec3f getTranslation();
@@ -212,7 +215,8 @@ public:
 
     ofRectangle			getOverlayRectangle() { return ofRectangle(0, 0, hudLayer->getQuadResolution().x, hudLayer->getQuadResolution().y); }
 
-	ofRectangle			getOculusViewport(ovrEyeType eye = ovrEye_Left);
+	ofRectangle			getViewport(ovrEyeType eye = ovrEye_Left);
+	ofRectangle			getDistortedViewport(ovrEyeType eye = ovrEye_Left);
 	ofMatrix4x4			getProjectionMatrix(ovrEyeType eye = ovrEye_Left);
     ofMatrix4x4			getViewMatrix(ovrEyeType eye = ovrEye_Left);
 
@@ -253,6 +257,11 @@ private:
     ovrEyeRenderDesc	eyeRenderDesc[ovrEye_Count];
     ovrPosef            eyeRenderPose[ovrEye_Count];
     ovrVector3f         hmdToEyeOffset[ovrEye_Count];
+	
+	ofCamera			transformedCamera;
+
+	map<ovrButton,bool> buttonStates; 
+	map<ovrButton,bool> buttonChangedStates; 
 
 	//Layers
 	std::unique_ptr<EyeFovLayer>	eyeLayer, backgroundLayer, transitionLayer;
