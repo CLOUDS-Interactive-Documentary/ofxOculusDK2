@@ -870,7 +870,6 @@ void ofxOculusDK2::beginLeftEye() {
 	/////////
 
 	if (!bSetup || !bDisplayConnected) return;
-	//if(!isVisible) return;
 
 	if(!bSetFrameData){
 		grabFrameData();
@@ -887,7 +886,6 @@ void ofxOculusDK2::beginLeftEye() {
 void ofxOculusDK2::endLeftEye() {
 
 	if (!bSetup || !bDisplayConnected) return;
-	//if(!isVisible) return;
 
 	eyeLayer->end();
 
@@ -898,7 +896,6 @@ void ofxOculusDK2::endLeftEye() {
 void ofxOculusDK2::beginRightEye() {
 
 	if (!bSetup || !bDisplayConnected) return;
-	//if(!isVisible) return;
 
 	if(!bSetFrameData){
 		grabFrameData();
@@ -914,11 +911,9 @@ void ofxOculusDK2::endRightEye() {
 
 	if (!bSetup || !bDisplayConnected) return;
 
-	//if(!isVisible){
-		eyeLayer->end();
-		ofPopMatrix();
-		ofPopView();
-	//}
+	eyeLayer->end();
+	ofPopMatrix();
+	ofPopView();
 	
 	//SUBMIT FRAME
 
@@ -951,7 +946,6 @@ void ofxOculusDK2::endRightEye() {
 	bSetFrameData = false;
 
     if (!OVR_SUCCESS(result)){
-		ofLogError() << "OVR Render Error";
 		bRenderError = true;
 	}else{
 		bRenderError = false;
@@ -961,7 +955,7 @@ void ofxOculusDK2::endRightEye() {
     ovr_GetSessionStatus(session, &sessionStatus);
 
     if (sessionStatus.ShouldQuit){
-		ofLogError() << "Quit!!";
+		ofExit(0);
 	}
 
     if (sessionStatus.ShouldRecenter){
